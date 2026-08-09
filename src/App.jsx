@@ -1,15 +1,42 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-    LayoutDashboard, ClipboardCheck, BookOpenCheck, LogOut, Menu, X, User, 
-    Lock, AlertCircle, CheckCircle2, Sparkles, BarChart3, Settings, Key, 
-    Mail, Shield, MessageSquare, Send, Printer, FileText, Download, Trash2
+    LayoutDashboard, 
+    ClipboardCheck, 
+    BookOpenCheck, 
+    LogOut, 
+    Menu, 
+    X,
+    User,
+    Lock,
+    AlertCircle,
+    CheckCircle2,
+    Sparkles,
+    ChevronRight,
+    BarChart3,
+    Settings,
+    Key,
+    Mail,
+    Shield,
+    MessageSquare,
+    Send,
+    Printer,
+    FileText,
+    Download,
+    Trash2,
+    Edit
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
 import { 
-    getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, 
-    createUserWithEmailAndPassword, updatePassword, reauthenticateWithCredential, 
-    EmailAuthProvider, sendPasswordResetEmail
+    getAuth, 
+    signInWithEmailAndPassword, 
+    onAuthStateChanged, 
+    signOut, 
+    createUserWithEmailAndPassword,
+    updatePassword,
+    reauthenticateWithCredential,
+    EmailAuthProvider,
+    sendPasswordResetEmail
 } from "firebase/auth";
 import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
 import { getAnalytics } from "firebase/analytics";
@@ -29,8 +56,7 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// ⚠️ IMPORTANT: REPLACE THIS STRING WITH YOUR REAL GOOGLE APPS SCRIPT WEB APP URL
-const GOOGLE_SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwoV2GcxKCG1wkhoT60u8GA_947NXpxB68TS_NjhmD3wCgMJdsrpWbalyF-UxN2qCfc8w/exec";
+const GOOGLE_SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzQ1V7NnL1iNf16J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29/exec";
 
 const STAFF_LIST = [
     { name: 'Abdul Ganee Ali', email: 'abdulganee@hdhatollschool.edu.mv', designation: 'Principal' },
@@ -189,9 +215,15 @@ export default function App() {
 
     const [selectedDashboardTeacher, setSelectedDashboardTeacher] = useState('All');
     const [selectedRecord, setSelectedRecord] = useState(null); 
+    const [editingRecord, setEditingRecord] = useState(null);
+    
     const [aiFeedback, setAiFeedback] = useState('');
     const [aiLoading, setAiLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    const [lessonPlanFile, setLessonPlanFile] = useState(null);
+    const [lessonPlanEval, setLessonPlanEval] = useState('');
+    const [isAnalyzingPdf, setIsAnalyzingPdf] = useState(false);
 
     const [pwdCurrent, setPwdCurrent] = useState('');
     const [pwdNew, setPwdNew] = useState('');
@@ -312,219 +344,6 @@ export default function App() {
         setUser(null);
         setRole(null);
         setTeacherName("");
-    };
-
-    const logToGoogleSheets = async (payload) => {
-        if (!GOOGLE_SHEETS_WEBHOOK_URL || GOOGLE_SHEETS_WEBHOOK_URL === "YOUR_WEB_APP_URL_HERE") {
-            console.error("Missing Google Apps Script URL. Data saved to database only.");
-            showNotification("Data saved locally, but Google Sheets URL is missing.", "error");
-            return;
-        }
-
-        try {
-            // Using mode 'no-cors' and text/plain to bypass CORS pre-flight checks
-            fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify(payload)
-            }).then(() => {
-                console.log("Successfully dispatched payload to Sheets webhook.");
-            }).catch(err => {
-                console.error("Sheets sync network error:", err);
-            });
-        } catch (e) {
-            console.error("Failed to prepare Sheets payload", e);
-        }
-    };
-
-    const handleLessonSubmit = async (e) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        const fd = new FormData(e.target);
-        
-        let totalScore = 0;
-        let totalMax = 0;
-        const ratings = ['5', '4', '3', '2', '1'];
-        const sectionsData = {};
-        let allQuestions = [];
-        
-        const teacherStrName = fd.get('teacherName');
-        const staff = STAFF_LIST.find(s => s.name === teacherStrName);
-
-        // 1. Prepare Google Sheets Payload (SUMMARY ONLY for logging & email)
-        const sheetsPayload = {
-            Type: 'Lesson Observation',
-            Timestamp: new Date().toISOString(),
-            Date: fd.get('assessmentDate'),
-            Teacher: teacherStrName,
-            TeacherEmail: staff ? staff.email : "", // Important for auto-emails
-            Observer: user.email
-        };
-        
-        LESSON_SECTIONS.forEach((section, sIdx) => {
-            let secScore = 0;
-            let secMax = 0;
-            section.qs.forEach((q, qIdx) => {
-                const val = fd.get(`q_${sIdx}_${qIdx}`);
-                if (val && ratings.includes(val)) {
-                    const numVal = parseInt(val);
-                    secScore += numVal;
-                    secMax += 5;
-                    allQuestions.push({ q, val: numVal, section: section.title });
-                }
-            });
-            const secPercent = secMax > 0 ? parseFloat(((secScore / secMax) * 100).toFixed(1)) : 0;
-            sectionsData[section.title] = { score: secScore, max: secMax, percentage: secPercent };
-            
-            // Add section summary to Sheets payload
-            sheetsPayload[`Section: ${section.title}`] = secPercent;
-            totalScore += secScore;
-            totalMax += secMax;
-        });
-        
-        const percentage = totalMax > 0 ? ((totalScore / totalMax) * 100).toFixed(1) : 0;
-        sheetsPayload.Total_Percentage = percentage; 
-        
-        // Find bottom 3 areas for AI suggestions
-        const bottom3 = [...allQuestions].sort((a, b) => a.val - b.val).slice(0, 3);
-        let aiSuggestions = "";
-        try {
-            const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring criteria and observer comments from their recent lesson observations, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Provide a simple numbered list without markdown asterisks.\n\nLowest Scoring Areas: ${bottom3.map(w => w.q).join(', ')}\n\nObserver Comments: ${fd.get('generalComments')}`;
-            const payload = { contents: [{ parts: [{ text: prompt }] }] };
-            const apiKey = ""; // Remove key for safety
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-            // Optional: Only attempt AI generation if API key is provided
-            if (apiKey) {
-                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                const result = await response.json();
-                if (result.candidates && result.candidates.length > 0) {
-                    aiSuggestions = result.candidates[0].content.parts[0].text;
-                }
-            }
-        } catch (e) {
-            console.warn("AI Generation failed on submit.", e);
-        }
-
-        // 2. Prepare Database Data (FULL DETAILS for Dashboard & PDFs)
-        const dbData = { 
-            Type: 'Lesson Observation',
-            Timestamp: sheetsPayload.Timestamp,
-            Date: fd.get('assessmentDate'),
-            Teacher: teacherStrName,
-            TeacherEmail: staff ? staff.email : "",
-            Class: fd.get('class'),
-            Subject: fd.get('subject'),
-            Topic: fd.get('topic'),
-            Students: fd.get('students'),
-            Observer: user.email,
-            percentage: parseFloat(percentage),
-            Total_Percentage: percentage,
-            sectionsData, 
-            questionsData: allQuestions, 
-            generalComments: fd.get('generalComments'),
-            Comments: fd.get('generalComments'),
-            aiSuggestions: aiSuggestions, 
-            AI_Suggestions: aiSuggestions,
-            timestamp: sheetsPayload.Timestamp 
-        };
-
-        // Save to Firebase (or local if offline)
-        if (offlineMode) LOCAL_MEMORY_DB.lesson_observations.push(dbData);
-        else await addDoc(collection(db, "lesson_observations"), dbData);
-        
-        // Send Summary to Google Sheets Webhook
-        logToGoogleSheets(sheetsPayload);
-        
-        e.target.reset();
-        setIsSubmitting(false);
-        showNotification("Observation submitted successfully!");
-        fetchDashboardData(true);
-        window.scrollTo(0, 0);
-    };
-
-    const handleBookCheckSubmit = async (e) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        const fd = new FormData(e.target);
-        
-        const numStudents = parseInt(fd.get('numStudents')) || 1;
-        const numCompleted = parseInt(fd.get('numCompleted')) || 0;
-        
-        const dim1 = parseInt(fd.get('dim1')) || 0;
-        const dim2 = parseInt(fd.get('dim2')) || 0;
-        const dim3 = parseInt(fd.get('dim3')) || 0;
-        const dim4 = parseInt(fd.get('dim4')) || 0;
-        const dim5 = parseInt(fd.get('dim5')) || 0;
-        const dim6 = parseInt(fd.get('dim6')) || 0;
-
-        const completionScore = Math.min((numCompleted / numStudents) * 10, 10);
-        const percentageScore = ((dim1 / 4) * 35) + ((dim2 / 4) * 25) + ((dim3 / 4) * 5) + ((dim4 / 4) * 15) + ((dim5 / 4) * 5) + ((dim6 / 4) * 5) + completionScore;
-        
-        const teacherStrName = fd.get('teacherName');
-        const staff = STAFF_LIST.find(s => s.name === teacherStrName);
-
-        // 1. Prepare Google Sheets Payload (SUMMARY ONLY for lightweight logging & email)
-        const sheetsPayload = {
-            Type: 'Book Checking',
-            Timestamp: new Date().toISOString(),
-            Date: fd.get('assessmentDate'),
-            Teacher: teacherStrName,
-            TeacherEmail: staff ? staff.email : "", 
-            Observer: user.email,
-            Regularity: dim1,
-            Accuracy: dim2,
-            Needs_Improvement: dim3,
-            Adequate_Work: dim4,
-            Neatness: dim5,
-            Date_Signature: dim6,
-            Completion_Score: parseFloat(completionScore.toFixed(1)),
-            Total_Percentage: parseFloat(percentageScore.toFixed(1))
-        };
-
-        // 2. Prepare Database Data (FULL DETAILS for Dashboard & PDFs)
-        const dbData = { 
-            Type: 'Book Checking',
-            Timestamp: sheetsPayload.Timestamp,
-            Date: fd.get('assessmentDate'),
-            Teacher: teacherStrName,
-            TeacherEmail: staff ? staff.email : "",
-            Class: fd.get('class'),
-            Subject: fd.get('subject'),
-            Observer: user.email,
-            Students_Total: numStudents,
-            Students_Submitted: fd.get('numSubmitted'),
-            Students_Completed: numCompleted,
-            Dim1_Regularity: dim1,
-            Dim2_Accuracy: dim2,
-            Dim3_NeedsImp: dim3,
-            Dim4_Adequate: dim4,
-            Dim5_Neatness: dim5,
-            Dim6_DateSig: dim6,
-            Work_Date_Comment: fd.get('workDateComment'),
-            Work_Margin_Comment: fd.get('workMarginComment'),
-            Work_Neatness_Comment: fd.get('workNeatnessComment'),
-            Work_Completion_Comment: fd.get('workCompletionComment'),
-            Total_Percentage: sheetsPayload.Total_Percentage,
-            percentageScore: sheetsPayload.Total_Percentage, 
-            timestamp: sheetsPayload.Timestamp, 
-            teacherFeedback: fd.get('feedback'),
-            Comments: fd.get('feedback')
-        };
-
-        // Save to Firebase (or local if offline)
-        if (offlineMode) LOCAL_MEMORY_DB.book_checkings.push(dbData);
-        else await addDoc(collection(db, "book_checkings"), dbData);
-        
-        // Dispatch summary to Sheets
-        logToGoogleSheets(sheetsPayload);
-        
-        e.target.reset();
-        setIsSubmitting(false);
-        showNotification("Book checking submitted successfully!");
-        fetchDashboardData(true);
-        window.scrollTo(0, 0);
     };
 
     const handlePasswordChange = async (e) => {
@@ -659,20 +478,344 @@ export default function App() {
         });
     };
 
+    const handleEdit = (record) => {
+        setEditingRecord(record);
+        setSelectedRecord(null);
+        setCurrentView(record.Type === 'Lesson Observation' || record.type === 'Lesson' ? 'lessonObs' : 'bookCheck');
+        setLessonPlanEval(record.lessonPlanEvaluation || record.Lesson_Plan_Eval || "");
+        setLessonPlanFile(null);
+        window.scrollTo(0, 0);
+    };
+
+    const logToGoogleSheets = async (payload) => {
+        if (!GOOGLE_SHEETS_WEBHOOK_URL) return;
+        if (GOOGLE_SHEETS_WEBHOOK_URL.includes("library/d")) return;
+
+        try {
+            fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(payload)
+            }).catch(err => console.error("Sheets sync error:", err));
+        } catch (e) {
+            console.error("Failed to prepare Sheets payload", e);
+        }
+    };
+
+    const handleFileChange = (e) => {
+        if (e.target.files && e.target.files[0]) {
+            setLessonPlanFile(e.target.files[0]);
+        }
+    };
+
+    const handleAnalyzePdf = async () => {
+        if (!lessonPlanFile) return;
+        setIsAnalyzingPdf(true);
+        setLessonPlanEval('');
+
+        try {
+            const reader = new FileReader();
+            reader.readAsDataURL(lessonPlanFile);
+            reader.onload = async () => {
+                const base64Data = reader.result.split(',')[1];
+                
+                const prompt = "Act as an expert school principal. Analyze this attached lesson plan PDF. Evaluate key attributes such as: 1. Clarity of learning intentions. 2. Appropriateness and sequencing of activities. 3. Differentiation for varied learner needs. 4. Alignment with assessment strategies. Provide a concise, professional evaluation highlighting strengths and areas for improvement.";
+                
+                const payload = {
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                { text: prompt },
+                                {
+                                    inlineData: {
+                                        mimeType: "application/pdf",
+                                        data: base64Data
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                };
+
+                const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+                try {
+                    const response = await fetch(apiUrl, { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify(payload) 
+                    });
+                    const result = await response.json();
+                    
+                    if (result.candidates && result.candidates.length > 0) {
+                        setLessonPlanEval(result.candidates[0].content.parts[0].text);
+                        showNotification("Lesson plan analyzed successfully!");
+                    } else {
+                        setLessonPlanEval("Could not evaluate the lesson plan. Please ensure it's a readable text-based PDF.");
+                        showNotification("Analysis failed.", "error");
+                    }
+                } catch (fetchErr) {
+                    console.error("Fetch Error:", fetchErr);
+                    setLessonPlanEval("Error communicating with AI mentor.");
+                }
+                setIsAnalyzingPdf(false);
+            };
+            reader.onerror = (error) => {
+                console.error("Error reading file:", error);
+                setLessonPlanEval("Error reading file.");
+                setIsAnalyzingPdf(false);
+            }
+        } catch (err) {
+            console.error("Reader Error:", err);
+            setLessonPlanEval("Error processing the file.");
+            setIsAnalyzingPdf(false);
+        }
+    };
+
+    const handleLessonSubmit = async (e) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        const fd = new FormData(e.target);
+        
+        let totalScore = 0;
+        let totalMax = 0;
+        const ratings = ['5', '4', '3', '2', '1'];
+        const sectionsData = {};
+        let allQuestions = [];
+        
+        let sheetsPayload = {
+            Type: 'Lesson Observation',
+            Timestamp: editingRecord ? (editingRecord.Timestamp || editingRecord.timestamp) : new Date().toISOString(),
+            Date: fd.get('assessmentDate'),
+            Teacher: fd.get('teacherName'),
+            Class: fd.get('class'),
+            Subject: fd.get('subject'),
+            Topic: fd.get('topic'),
+            Students: fd.get('students'),
+            Observer: user.email,
+            Comments: fd.get('generalComments'),
+            Lesson_Plan_Eval: fd.get('lessonPlanEval') || ""
+        };
+
+        const staff = STAFF_LIST.find(s => s.name === fd.get('teacherName'));
+        sheetsPayload.TeacherEmail = staff ? staff.email : "";
+        
+        LESSON_SECTIONS.forEach((section, sIdx) => {
+            let secScore = 0;
+            let secMax = 0;
+            section.qs.forEach((q, qIdx) => {
+                const val = fd.get(`q_${sIdx}_${qIdx}`);
+                if (val && ratings.includes(val)) {
+                    const numVal = parseInt(val);
+                    secScore += numVal;
+                    secMax += 5;
+                    allQuestions.push({ q, val: numVal, section: section.title });
+                    sheetsPayload[q] = numVal;
+                }
+            });
+            const secPercent = secMax > 0 ? parseFloat(((secScore / secMax) * 100).toFixed(1)) : 0;
+            sectionsData[section.title] = { score: secScore, max: secMax, percentage: secPercent };
+            sheetsPayload[`Section: ${section.title}`] = secPercent;
+            
+            totalScore += secScore;
+            totalMax += secMax;
+        });
+        
+        const percentage = totalMax > 0 ? ((totalScore / totalMax) * 100).toFixed(1) : 0;
+        sheetsPayload.Total_Percentage = percentage;
+        
+        const bottom3 = [...allQuestions].sort((a, b) => a.val - b.val).slice(0, 3);
+        let aiSuggestions = editingRecord ? (editingRecord.AI_Suggestions || editingRecord.aiSuggestions || "") : "";
+        
+        if (!editingRecord || !aiSuggestions) {
+            try {
+                const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring criteria and observer comments from their recent lesson observations, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Provide a simple numbered list without markdown asterisks.\n\nLowest Scoring Areas: ${bottom3.map(w => w.q).join(', ')}\n\nObserver Comments: ${fd.get('generalComments')}`;
+                const payload = { contents: [{ parts: [{ text: prompt }] }] };
+                const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                const result = await response.json();
+                if (result.candidates && result.candidates.length > 0) {
+                    aiSuggestions = result.candidates[0].content.parts[0].text;
+                }
+            } catch (err) {
+                console.warn("AI Generation failed on submit.", err);
+            }
+        }
+        sheetsPayload.AI_Suggestions = aiSuggestions;
+
+        const dbData = { 
+            ...sheetsPayload, 
+            percentage: parseFloat(percentage), 
+            sectionsData, 
+            questionsData: allQuestions, 
+            generalComments: fd.get('generalComments'), 
+            aiSuggestions, 
+            lessonPlanEvaluation: fd.get('lessonPlanEval') || "", 
+            timestamp: sheetsPayload.Timestamp 
+        };
+
+        try {
+            if (offlineMode) {
+                if (editingRecord) {
+                    LOCAL_MEMORY_DB.lesson_observations = LOCAL_MEMORY_DB.lesson_observations.map(r => r.timestamp === editingRecord.timestamp ? dbData : r);
+                } else {
+                    LOCAL_MEMORY_DB.lesson_observations.push(dbData);
+                }
+            } else {
+                if (editingRecord && editingRecord.id) {
+                    await setDoc(doc(db, "lesson_observations", editingRecord.id), dbData);
+                } else {
+                    await addDoc(collection(db, "lesson_observations"), dbData);
+                }
+            }
+            
+            logToGoogleSheets(sheetsPayload);
+            
+            e.target.reset();
+            setIsSubmitting(false);
+            setLessonPlanFile(null);
+            setLessonPlanEval('');
+            setEditingRecord(null);
+            
+            showNotification(editingRecord ? "Observation updated successfully!" : "Observation submitted & AI Strategies generated!");
+            fetchDashboardData(true);
+            setCurrentView('dashboard');
+            window.scrollTo(0, 0);
+        } catch (error) {
+            console.error("Save error:", error);
+            showNotification("Failed to save observation.", "error");
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleBookCheckSubmit = async (e) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        const fd = new FormData(e.target);
+        
+        const numStudents = parseInt(fd.get('numStudents')) || 1;
+        const numCompleted = parseInt(fd.get('numCompleted')) || 0;
+        
+        const dim1 = parseInt(fd.get('dim1')) || 0;
+        const dim2 = parseInt(fd.get('dim2')) || 0;
+        const dim3 = parseInt(fd.get('dim3')) || 0;
+        const dim4 = parseInt(fd.get('dim4')) || 0;
+        const dim5 = parseInt(fd.get('dim5')) || 0;
+        const dim6 = parseInt(fd.get('dim6')) || 0;
+
+        const completionScore = Math.min((numCompleted / numStudents) * 10, 10);
+        const percentageScore = ((dim1 / 4) * 35) + ((dim2 / 4) * 25) + ((dim3 / 4) * 5) + ((dim4 / 4) * 15) + ((dim5 / 4) * 5) + ((dim6 / 4) * 5) + completionScore;
+        
+        const staff = STAFF_LIST.find(s => s.name === fd.get('teacherName'));
+
+        const sheetsPayload = {
+            Type: 'Book Checking',
+            Timestamp: editingRecord ? (editingRecord.Timestamp || editingRecord.timestamp) : new Date().toISOString(),
+            Date: fd.get('assessmentDate'),
+            Teacher: fd.get('teacherName'),
+            TeacherEmail: staff ? staff.email : "",
+            Class: fd.get('class'),
+            Subject: fd.get('subject'),
+            Observer: user.email,
+            Students_Total: numStudents,
+            Students_Submitted: fd.get('numSubmitted'),
+            Students_Completed: numCompleted,
+            Dim1_Regularity: dim1,
+            Dim2_Accuracy: dim2,
+            Dim3_NeedsImp: dim3,
+            Dim4_Adequate: dim4,
+            Dim5_Neatness: dim5,
+            Dim6_DateSig: dim6,
+            Work_Date_Comment: fd.get('workDateComment'),
+            Work_Margin_Comment: fd.get('workMarginComment'),
+            Work_Neatness_Comment: fd.get('workNeatnessComment'),
+            Work_Completion_Comment: fd.get('workCompletionComment'),
+            Total_Percentage: parseFloat(percentageScore.toFixed(1)),
+            Comments: fd.get('feedback')
+        };
+
+        let aiSuggestions = editingRecord ? (editingRecord.AI_Suggestions || editingRecord.aiSuggestions || "") : "";
+        if (!editingRecord || !aiSuggestions) {
+            const dims = [
+                { q: 'Regularity in marking', val: dim1 },
+                { q: 'Accuracy comments given', val: dim2 },
+                { q: 'Needs Improvement in marking', val: dim3 },
+                { q: 'Adequate work given / Constructive', val: dim4 },
+                { q: 'Neatness in marking', val: dim5 },
+                { q: 'Date and signature given', val: dim6 }
+            ];
+            const bottom3 = dims.sort((a, b) => a.val - b.val).slice(0, 3);
+            
+            try {
+                const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring book checking criteria and observer comments, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Provide a simple numbered list without markdown asterisks.\n\nLowest Scoring Areas: ${bottom3.map(w => w.q).join(', ')}\n\nObserver Comments: ${fd.get('feedback')}`;
+                const payload = { contents: [{ parts: [{ text: prompt }] }] };
+                const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                const result = await response.json();
+                if (result.candidates && result.candidates.length > 0) {
+                    aiSuggestions = result.candidates[0].content.parts[0].text;
+                }
+            } catch (err) {
+                console.warn("AI Generation failed on submit.", err);
+            }
+        }
+        sheetsPayload.AI_Suggestions = aiSuggestions;
+
+        const dbData = { 
+            ...sheetsPayload, 
+            percentageScore: sheetsPayload.Total_Percentage, 
+            timestamp: sheetsPayload.Timestamp, 
+            teacherFeedback: fd.get('feedback'),
+            aiSuggestions
+        };
+
+        try {
+            if (offlineMode) {
+                if (editingRecord) {
+                    LOCAL_MEMORY_DB.book_checkings = LOCAL_MEMORY_DB.book_checkings.map(r => r.timestamp === editingRecord.timestamp ? dbData : r);
+                } else {
+                    LOCAL_MEMORY_DB.book_checkings.push(dbData);
+                }
+            } else {
+                if (editingRecord && editingRecord.id) {
+                    await setDoc(doc(db, "book_checkings", editingRecord.id), dbData);
+                } else {
+                    await addDoc(collection(db, "book_checkings"), dbData);
+                }
+            }
+            
+            logToGoogleSheets(sheetsPayload);
+            
+            e.target.reset();
+            setIsSubmitting(false);
+            setEditingRecord(null);
+            
+            showNotification(editingRecord ? "Book checking updated successfully!" : "Book checking submitted & AI Strategies generated!");
+            fetchDashboardData(true);
+            setCurrentView('dashboard');
+            window.scrollTo(0, 0);
+        } catch (error) {
+            console.error("Save error:", error);
+            showNotification("Failed to save book check.", "error");
+            setIsSubmitting(false);
+        }
+    };
+
     const generateAI = async (weakAreas, comments) => {
         setAiLoading(true);
         setAiFeedback('');
         
         const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring criteria and observer comments from their recent lesson observations, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Do not use bold markdown. Provide a simple numbered list.\n\nLowest Scoring Areas: ${weakAreas.map(w => w.q).join(', ')}\n\nObserver Comments: ${comments.join(' | ')}`;
         const payload = { contents: [{ parts: [{ text: prompt }] }] };
-        const apiKey = ""; 
+        const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-        if (!apiKey) {
-            setAiFeedback("API Key missing. Please provide a Gemini API key in the source code.");
-            setAiLoading(false);
-            return;
-        }
 
         try {
             const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -705,12 +848,11 @@ export default function App() {
         try {
             const payload = {
                 contents: updatedHistory,
-                systemInstruction: { parts: [{ text: systemPrompt }] }
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                tools: [{ "google_search": {} }]
             };
-            const apiKey = ""; 
+            const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-            
-            if (!apiKey) throw new Error("Missing API Key");
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -726,7 +868,7 @@ export default function App() {
                 showNotification("Failed to generate response.", "error");
             }
         } catch (err) {
-            showNotification("Connection to AI Mentor failed. Check API key.", "error");
+            showNotification("Connection to AI Mentor failed.", "error");
         }
         setIsChatLoading(false);
     };
@@ -748,7 +890,7 @@ export default function App() {
                             <MessageSquare size={32} />
                         </div>
                         <p className="font-bold text-gray-700 text-lg mb-2">Welcome to your AI Mentor!</p>
-                        <p className="text-sm max-w-md mx-auto mb-4">I am powered by the Gemini API. I can help you discover modern teaching methods, analyze assessment criteria, or suggest classroom activities.</p>
+                        <p className="text-sm max-w-md mx-auto mb-4">I am powered by the Gemini API with active web search capabilities. I can help you discover modern teaching methods, analyze assessment criteria, or suggest classroom activities.</p>
                         <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm italic text-left w-full max-w-sm">
                             <span className="font-semibold text-gray-600 not-italic block mb-1">Try asking:</span>
                             "How can I improve student engagement during set induction for a science class?"
@@ -1024,7 +1166,7 @@ export default function App() {
                                             <td className="p-3 text-sm font-bold text-gray-700">{item.Total_Percentage || item.percentage || item.percentageScore}%</td>
                                             <td className="p-3 text-right">
                                                 <button className="text-xs bg-white border border-gray-200 text-blue-600 px-3 py-1.5 rounded shadow-sm group-hover:bg-blue-600 group-hover:text-white transition flex items-center gap-1 ml-auto">
-                                                    <Printer size={14} /> PDF
+                                                    <FileText size={14} /> View
                                                 </button>
                                             </td>
                                         </tr>
@@ -1152,18 +1294,18 @@ export default function App() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="bg-blue-600 p-8 text-white text-center">
                 <h1 className="text-4xl font-extrabold tracking-widest mb-2 font-serif">HDH ATOLL SCHOOL</h1>
-                <h3 className="text-lg opacity-90 font-medium">Key Stage - Lesson Observation Form</h3>
+                <h3 className="text-lg opacity-90 font-medium">{editingRecord ? 'Editing Lesson Observation' : 'Key Stage - Lesson Observation Form'}</h3>
             </div>
             
             <form onSubmit={handleLessonSubmit} className="p-6 md:p-8 space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-gray-50 p-6 rounded-lg border border-gray-100">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                        <input type="date" name="assessmentDate" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" />
+                        <input type="date" name="assessmentDate" required defaultValue={editingRecord ? (editingRecord.Date || editingRecord.date) : new Date().toISOString().split('T')[0]} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Teacher's Name</label>
-                        <select name="teacherName" required className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white">
+                        <select name="teacherName" required defaultValue={editingRecord?.Teacher || editingRecord?.teacherName || ""} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white">
                             <option value="">Select Teacher...</option>
                             {STAFF_LIST.map((staff, idx) => (
                                 <option key={idx} value={staff.name}>{staff.name} ({staff.designation})</option>
@@ -1172,19 +1314,19 @@ export default function App() {
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                        <input type="text" name="subject" required className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="e.g., English" />
+                        <input type="text" name="subject" required defaultValue={editingRecord?.Subject || editingRecord?.subject || ""} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="e.g., English" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
-                        <input type="text" name="class" required className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="e.g., 10S1" />
+                        <input type="text" name="class" required defaultValue={editingRecord?.Class || editingRecord?.class || ""} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="e.g., 10S1" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Topic</label>
-                        <input type="text" name="topic" required className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" />
+                        <input type="text" name="topic" required defaultValue={editingRecord?.Topic || editingRecord?.topic || ""} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">No. of students</label>
-                        <input type="number" name="students" required min="1" className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" />
+                        <input type="number" name="students" required min="1" defaultValue={editingRecord?.Students || editingRecord?.students || ""} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" />
                     </div>
                 </div>
 
@@ -1220,11 +1362,19 @@ export default function App() {
                                     {section.qs.map((q, qIdx) => (
                                         <tr key={qIdx} className="border-b hover:bg-gray-50 transition-colors">
                                             <td className="p-3 py-4 text-gray-700 max-w-md">{q}</td>
-                                            {['5', '4', '3', '2', '1', 'NN'].map((val) => (
-                                                <td key={val} className="p-3 text-center">
-                                                    <input type="radio" name={`q_${sIdx}_${qIdx}`} value={val} required className="w-4 h-4 text-blue-600 focus:ring-blue-500" />
-                                                </td>
-                                            ))}
+                                            {['5', '4', '3', '2', '1', 'NN'].map((val) => {
+                                                let isChecked = false;
+                                                if (editingRecord && editingRecord.questionsData) {
+                                                    const match = editingRecord.questionsData.find(qd => qd.q === q);
+                                                    if (match && match.val.toString() === val) isChecked = true;
+                                                    if (match === undefined && val === 'NN') isChecked = true; 
+                                                }
+                                                return (
+                                                    <td key={val} className="p-3 text-center">
+                                                        <input type="radio" name={`q_${sIdx}_${qIdx}`} value={val} defaultChecked={isChecked} required className="w-4 h-4 text-blue-600 focus:ring-blue-500" />
+                                                    </td>
+                                                );
+                                            })}
                                         </tr>
                                     ))}
                                 </tbody>
@@ -1233,12 +1383,55 @@ export default function App() {
                     </div>
                 ))}
 
-                <div className="mt-8 pt-6 border-t">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Overall Comments / Feedback provided to the Teacher</label>
-                    <textarea name="generalComments" rows="4" className="w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 outline-none border" placeholder="Enter constructive feedback..."></textarea>
+                <div className="mt-8 pt-6 border-t border-gray-200">
+                    <h3 className="font-bold text-lg text-gray-800 mb-3 flex items-center gap-2">
+                        <FileText size={20} className="text-indigo-600" />
+                        Upload Lesson Plan (PDF) for AI Evaluation
+                    </h3>
+                    <div className="bg-indigo-50/50 p-5 rounded-lg border border-indigo-100 space-y-4">
+                        <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+                            <input 
+                                type="file" 
+                                accept="application/pdf"
+                                onChange={handleFileChange}
+                                className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 focus:outline-none"
+                            />
+                            <button 
+                                type="button"
+                                onClick={handleAnalyzePdf}
+                                disabled={!lessonPlanFile || isAnalyzingPdf}
+                                className="w-full md:w-auto whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 px-5 rounded-lg shadow-sm transition flex items-center justify-center gap-2"
+                            >
+                                {isAnalyzingPdf ? (
+                                    <>Analyzing PDF...</>
+                                ) : (
+                                    <><Sparkles size={16} /> Analyze Plan</>
+                                )}
+                            </button>
+                        </div>
+                        
+                        {lessonPlanEval && (
+                            <div className="mt-4 bg-white border border-indigo-200 p-4 rounded-lg shadow-sm">
+                                <h4 className="text-sm font-bold text-indigo-900 mb-2 uppercase tracking-wider">AI Evaluation Result</h4>
+                                <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                                    {lessonPlanEval}
+                                </div>
+                            </div>
+                        )}
+                        <input type="hidden" name="lessonPlanEval" value={lessonPlanEval} />
+                    </div>
                 </div>
 
-                <div className="mt-10 pt-8 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="mt-8 pt-6 border-t">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Overall Comments / Feedback provided to the Teacher</label>
+                    <textarea name="generalComments" rows={4} defaultValue={editingRecord?.generalComments || editingRecord?.Comments || ""} className="w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 outline-none border" placeholder="Enter constructive feedback..."></textarea>
+                </div>
+
+                <div className="mt-10 pt-8 border-t border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Teacher Signature</label>
+                        <input type="text" readOnly value="Signed Electronically" className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm outline-none border bg-gray-100 text-gray-500" />
+                    </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Leading Teacher</label>
                         <input type="text" name="leadingTeacher" className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 outline-none border bg-gray-50" placeholder="Name / Signature" />
@@ -1249,9 +1442,12 @@ export default function App() {
                     </div>
                 </div>
 
-                <div className="mt-8 flex justify-end">
+                <div className="mt-8 flex justify-end gap-4">
+                    {editingRecord && (
+                        <button type="button" onClick={() => { setEditingRecord(null); setCurrentView('dashboard'); }} className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-3 px-6 rounded-lg transition">Cancel</button>
+                    )}
                     <button type="submit" disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-70 text-white font-medium py-3 px-8 rounded-lg shadow-lg transition flex items-center gap-2">
-                        {isSubmitting ? 'Analyzing & Sending...' : <><CheckCircle2 size={20} /> Submit Observation</>}
+                        {isSubmitting ? 'Processing...' : <><CheckCircle2 size={20} /> {editingRecord ? 'Update Observation' : 'Submit Observation'}</>}
                     </button>
                 </div>
             </form>
@@ -1262,18 +1458,18 @@ export default function App() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="bg-green-700 p-8 text-white text-center">
                 <h1 className="text-4xl font-extrabold tracking-widest mb-2 font-serif">HDH ATOLL SCHOOL</h1>
-                <h3 className="text-lg opacity-90 font-medium">School Supervision - Checking of Student Work</h3>
+                <h3 className="text-lg opacity-90 font-medium">{editingRecord ? 'Editing Book Check' : 'School Supervision - Checking of Student Work'}</h3>
             </div>
             
             <form onSubmit={handleBookCheckSubmit} className="p-6 md:p-8 space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-gray-50 p-6 rounded-lg border border-gray-100">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                        <input type="date" name="assessmentDate" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
+                        <input type="date" name="assessmentDate" required defaultValue={editingRecord ? (editingRecord.Date || editingRecord.date) : new Date().toISOString().split('T')[0]} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Teacher's Name</label>
-                        <select name="teacherName" required className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-green-500 outline-none border bg-white">
+                        <select name="teacherName" required defaultValue={editingRecord?.Teacher || editingRecord?.teacherName || ""} className="w-full px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-green-500 outline-none border bg-white">
                             <option value="">Select Teacher...</option>
                             {STAFF_LIST.map((staff, idx) => (
                                 <option key={idx} value={staff.name}>{staff.name} ({staff.designation})</option>
@@ -1282,24 +1478,24 @@ export default function App() {
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                        <input type="text" name="subject" required className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
+                        <input type="text" name="subject" required defaultValue={editingRecord?.Subject || editingRecord?.subject || ""} className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
-                        <input type="text" name="class" required className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
+                        <input type="text" name="class" required defaultValue={editingRecord?.Class || editingRecord?.class || ""} className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Total Students</label>
-                        <input type="number" name="numStudents" required min="1" className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
+                        <input type="number" name="numStudents" required min="1" defaultValue={editingRecord?.Students_Total || editingRecord?.numStudents || ""} className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                          <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">Submitted</label>
-                            <input type="number" name="numSubmitted" required min="0" className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
+                            <input type="number" name="numSubmitted" required min="0" defaultValue={editingRecord?.Students_Submitted || editingRecord?.numSubmitted || ""} className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
                         </div>
                         <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">Completed</label>
-                            <input type="number" name="numCompleted" required min="0" className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
+                            <input type="number" name="numCompleted" required min="0" defaultValue={editingRecord?.Students_Completed || editingRecord?.numCompleted || ""} className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border" />
                         </div>
                     </div>
                 </div>
@@ -1317,12 +1513,12 @@ export default function App() {
                             </thead>
                             <tbody>
                                 {[
-                                    { id: 'dim1', label: 'Regularity in marking', w: '35%' },
-                                    { id: 'dim2', label: 'Accuracy comments given', w: '25%' },
-                                    { id: 'dim3', label: 'Needs Improvement in marking', w: '5%' },
-                                    { id: 'dim4', label: 'Adequate work given / Constructive', w: '15%' },
-                                    { id: 'dim5', label: 'Neatness in marking', w: '5%' },
-                                    { id: 'dim6', label: 'Date and signature given', w: '5%' }
+                                    { id: 'dim1', label: 'Regularity in marking', w: '35%', dbKey: 'Dim1_Regularity' },
+                                    { id: 'dim2', label: 'Accuracy comments given', w: '25%', dbKey: 'Dim2_Accuracy' },
+                                    { id: 'dim3', label: 'Needs Improvement in marking', w: '5%', dbKey: 'Dim3_NeedsImp' },
+                                    { id: 'dim4', label: 'Adequate work given / Constructive', w: '15%', dbKey: 'Dim4_Adequate' },
+                                    { id: 'dim5', label: 'Neatness in marking', w: '5%', dbKey: 'Dim5_Neatness' },
+                                    { id: 'dim6', label: 'Date and signature given', w: '5%', dbKey: 'Dim6_DateSig' }
                                 ].map((dim, idx) => (
                                     <tr key={idx} className="border-b hover:bg-gray-50">
                                         <td className="p-3 font-medium text-gray-700">{dim.label}</td>
@@ -1331,7 +1527,7 @@ export default function App() {
                                             <div className="flex gap-4">
                                                 {[1,2,3,4].map(val => (
                                                     <label key={val} className="flex items-center gap-1 cursor-pointer">
-                                                        <input type="radio" name={dim.id} value={val} required className="text-green-600 focus:ring-green-500" />
+                                                        <input type="radio" name={dim.id} value={val} defaultChecked={editingRecord && editingRecord[dim.dbKey] === val} required className="text-green-600 focus:ring-green-500" />
                                                         <span className="text-gray-600">{val}</span>
                                                     </label>
                                                 ))}
@@ -1355,29 +1551,33 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Writing of date in student work</label>
-                            <textarea name="workDateComment" rows="2" className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
+                            <textarea name="workDateComment" rows={2} defaultValue={editingRecord?.Work_Date_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Drawing of Margins</label>
-                            <textarea name="workMarginComment" rows="2" className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
+                            <textarea name="workMarginComment" rows={2} defaultValue={editingRecord?.Work_Margin_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Neatness of the work</label>
-                            <textarea name="workNeatnessComment" rows="2" className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
+                            <textarea name="workNeatnessComment" rows={2} defaultValue={editingRecord?.Work_Neatness_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Completion of the work</label>
-                            <textarea name="workCompletionComment" rows="2" className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
+                            <textarea name="workCompletionComment" rows={2} defaultValue={editingRecord?.Work_Completion_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
                         </div>
                     </div>
                 </div>
 
                 <div>
                     <h3 className="font-bold text-lg text-gray-800 mb-3 border-b pb-2">Feedback given to the Teacher</h3>
-                    <textarea name="feedback" required rows="5" className="w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm border outline-none text-sm" placeholder="Detail the observations, errors, and corrective actions..."></textarea>
+                    <textarea name="feedback" required rows={5} defaultValue={editingRecord?.Comments || editingRecord?.teacherFeedback || ""} className="w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm border outline-none text-sm" placeholder="Detail the observations, errors, and corrective actions..."></textarea>
                 </div>
 
-                <div className="mt-10 pt-8 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="mt-10 pt-8 border-t border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Teacher Signature</label>
+                        <input type="text" readOnly value="Signed Electronically" className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm outline-none border bg-gray-100 text-gray-500" />
+                    </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Leading Teacher</label>
                         <input type="text" name="leadingTeacher" className="w-full px-4 py-2 rounded-lg border-gray-300 shadow-sm focus:border-green-500 outline-none border bg-gray-50" placeholder="Name / Signature" />
@@ -1388,9 +1588,12 @@ export default function App() {
                     </div>
                 </div>
 
-                <div className="mt-8 flex justify-end">
+                <div className="mt-8 flex justify-end gap-4">
+                    {editingRecord && (
+                        <button type="button" onClick={() => { setEditingRecord(null); setCurrentView('dashboard'); }} className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-3 px-6 rounded-lg transition">Cancel</button>
+                    )}
                     <button type="submit" disabled={isSubmitting} className="bg-green-700 hover:bg-green-800 disabled:opacity-70 text-white font-medium py-3 px-8 rounded-lg shadow flex items-center gap-2">
-                        {isSubmitting ? 'Sending Report...' : <><CheckCircle2 size={20} /> Submit Book Check</>}
+                        {isSubmitting ? 'Processing...' : <><CheckCircle2 size={20} /> {editingRecord ? 'Update Book Check' : 'Submit Book Check'}</>}
                     </button>
                 </div>
             </form>
@@ -1478,20 +1681,20 @@ export default function App() {
                 </div>
 
                 <div className="flex-1 px-4 space-y-2 mt-2">
-                    <button onClick={() => {setCurrentView('dashboard'); setSidebarOpen(false); fetchDashboardData(true);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'dashboard' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
+                    <button onClick={() => {setCurrentView('dashboard'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null); fetchDashboardData(true);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'dashboard' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
                         <LayoutDashboard size={20} /> Dashboard
                     </button>
                     
-                    <button onClick={() => {setCurrentView('aiMentor'); setSidebarOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'aiMentor' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
+                    <button onClick={() => {setCurrentView('aiMentor'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'aiMentor' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
                         <MessageSquare size={20} /> AI Mentor
                     </button>
 
                     {role === 'observer' && (
                         <>
-                            <button onClick={() => {setCurrentView('lessonObs'); setSidebarOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'lessonObs' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
+                            <button onClick={() => {setCurrentView('lessonObs'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'lessonObs' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
                                 <ClipboardCheck size={20} /> Lesson Observation
                             </button>
-                            <button onClick={() => {setCurrentView('bookCheck'); setSidebarOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'bookCheck' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
+                            <button onClick={() => {setCurrentView('bookCheck'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'bookCheck' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
                                 <BookOpenCheck size={20} /> Book Checking
                             </button>
                         </>
@@ -1499,7 +1702,7 @@ export default function App() {
                 </div>
 
                 <div className="p-4 border-t border-blue-800 space-y-2">
-                    <button onClick={() => {setCurrentView('settings'); setSidebarOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'settings' ? 'bg-blue-800 text-white' : 'text-blue-200 hover:bg-blue-800/30'}`}>
+                    <button onClick={() => {setCurrentView('settings'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'settings' ? 'bg-blue-800 text-white' : 'text-blue-200 hover:bg-blue-800/30'}`}>
                         <Settings size={20} /> Settings
                     </button>
                     <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-300 hover:bg-red-900/30 transition">
@@ -1536,12 +1739,20 @@ export default function App() {
                             </h3>
                             <div className="flex items-center gap-3">
                                 {role === 'observer' && (
-                                    <button 
-                                        onClick={() => handleDeleteRecord(selectedRecord)} 
-                                        className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
-                                    >
-                                        <Trash2 size={16} /> Delete
-                                    </button>
+                                    <>
+                                        <button 
+                                            onClick={() => handleEdit(selectedRecord)}
+                                            className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
+                                        >
+                                            <Edit size={16} /> Edit
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDeleteRecord(selectedRecord)} 
+                                            className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
+                                        >
+                                            <Trash2 size={16} /> Delete
+                                        </button>
+                                    </>
                                 )}
                                 <button 
                                     onClick={() => window.print()} 
@@ -1602,7 +1813,7 @@ export default function App() {
                                             <div className="mb-6 print-break-inside-avoid">
                                                 <h4 className="font-bold text-gray-900 border-b-2 border-gray-200 pb-2 mb-3 text-lg">Section Breakdown</h4>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                    {Object.entries(selectedRecord.sectionsData).map(([sec, data], idx) => (
+                                                    {Object.entries(selectedRecord.sectionsData).map(([sec, data]: any, idx) => (
                                                         <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-gray-200 text-sm shadow-sm">
                                                             <span className="text-gray-800 font-medium">{sec}</span>
                                                             <span className="font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">{data.percentage}%</span>
@@ -1624,7 +1835,7 @@ export default function App() {
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-100">
-                                                            {selectedRecord.questionsData.map((q, idx) => (
+                                                            {selectedRecord.questionsData.map((q: any, idx: number) => (
                                                                 <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                                                                     <td className="p-2.5 text-gray-800">{q.q}</td>
                                                                     <td className="p-2.5 text-center font-bold text-blue-700">{q.val} / 5</td>
@@ -1683,10 +1894,21 @@ export default function App() {
                                     </>
                                 )}
 
+                                {selectedRecord.lessonPlanEvaluation && (
+                                    <div className="mb-8 print-break-inside-avoid">
+                                        <h4 className="font-bold text-gray-900 border-b-2 border-gray-200 pb-2 mb-4 text-lg flex items-center gap-2">
+                                            <Sparkles size={18} className="text-indigo-600" /> Lesson Plan AI Evaluation
+                                        </h4>
+                                        <div className="bg-indigo-50/50 border border-indigo-100 p-5 rounded-xl text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">
+                                            {selectedRecord.lessonPlanEvaluation}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {selectedRecord.AI_Suggestions && (
                                     <div className="mb-8 print-break-inside-avoid">
                                         <h4 className="font-bold text-gray-900 border-b-2 border-gray-200 pb-2 mb-4 text-lg flex items-center gap-2">
-                                            <Sparkles size={18} className="text-indigo-600" /> AI Mentoring Suggestions
+                                            <Sparkles size={18} className="text-indigo-600" /> AI Mentoring Strategies
                                         </h4>
                                         <div className="bg-indigo-50/50 border border-indigo-100 p-5 rounded-xl text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">
                                             {selectedRecord.AI_Suggestions}
@@ -1701,7 +1923,12 @@ export default function App() {
                                     </div>
                                 </div>
 
-                                <div className="mt-12 pt-8 border-t-2 border-gray-200 grid grid-cols-2 gap-8 print-break-inside-avoid">
+                                <div className="mt-12 pt-8 border-t-2 border-gray-200 grid grid-cols-3 gap-8 print-break-inside-avoid">
+                                    <div>
+                                        <p className="text-xs uppercase text-gray-500 font-bold mb-8 tracking-wider">Teacher Signature</p>
+                                        <div className="border-b border-gray-400 w-full mb-2"></div>
+                                        <p className="text-sm font-medium text-gray-800">{selectedRecord.Teacher || selectedRecord.teacherName}</p>
+                                    </div>
                                     <div>
                                         <p className="text-xs uppercase text-gray-500 font-bold mb-8 tracking-wider">Observer Signature</p>
                                         <div className="border-b border-gray-400 w-full mb-2"></div>
@@ -1720,6 +1947,7 @@ export default function App() {
                 </div>
             )}
 
+            {}
             {confirmDialog.isOpen && (
                 <div className="fixed inset-0 z-[60] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 no-print">
                     <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform transition-all">
