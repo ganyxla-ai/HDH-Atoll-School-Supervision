@@ -1424,7 +1424,7 @@ export default function App() {
 
                 <div className="mt-8 pt-6 border-t">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Overall Comments / Feedback provided to the Teacher</label>
-                    <textarea name="generalComments" rows={4} defaultValue={editingRecord?.generalComments || editingRecord?.Comments || ""} className="w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 outline-none border" placeholder="Enter constructive feedback..."></textarea>
+                    <textarea name="generalComments" rows="4" defaultValue={editingRecord?.generalComments || editingRecord?.Comments || ""} className="w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 outline-none border" placeholder="Enter constructive feedback..."></textarea>
                 </div>
 
                 <div className="mt-10 pt-8 border-t border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -1551,26 +1551,26 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Writing of date in student work</label>
-                            <textarea name="workDateComment" rows={2} defaultValue={editingRecord?.Work_Date_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
+                            <textarea name="workDateComment" rows="2" defaultValue={editingRecord?.Work_Date_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Drawing of Margins</label>
-                            <textarea name="workMarginComment" rows={2} defaultValue={editingRecord?.Work_Margin_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
+                            <textarea name="workMarginComment" rows="2" defaultValue={editingRecord?.Work_Margin_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Neatness of the work</label>
-                            <textarea name="workNeatnessComment" rows={2} defaultValue={editingRecord?.Work_Neatness_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
+                            <textarea name="workNeatnessComment" rows="2" defaultValue={editingRecord?.Work_Neatness_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Completion of the work</label>
-                            <textarea name="workCompletionComment" rows={2} defaultValue={editingRecord?.Work_Completion_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
+                            <textarea name="workCompletionComment" rows="2" defaultValue={editingRecord?.Work_Completion_Comment || ""} className="w-full px-3 py-2 rounded-lg border-gray-300 shadow-sm border outline-none text-sm"></textarea>
                         </div>
                     </div>
                 </div>
 
                 <div>
                     <h3 className="font-bold text-lg text-gray-800 mb-3 border-b pb-2">Feedback given to the Teacher</h3>
-                    <textarea name="feedback" required rows={5} defaultValue={editingRecord?.Comments || editingRecord?.teacherFeedback || ""} className="w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm border outline-none text-sm" placeholder="Detail the observations, errors, and corrective actions..."></textarea>
+                    <textarea name="feedback" required rows="5" defaultValue={editingRecord?.Comments || editingRecord?.teacherFeedback || ""} className="w-full px-4 py-3 rounded-lg border-gray-300 shadow-sm border outline-none text-sm" placeholder="Detail the observations, errors, and corrective actions..."></textarea>
                 </div>
 
                 <div className="mt-10 pt-8 border-t border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -1813,7 +1813,7 @@ export default function App() {
                                             <div className="mb-6 print-break-inside-avoid">
                                                 <h4 className="font-bold text-gray-900 border-b-2 border-gray-200 pb-2 mb-3 text-lg">Section Breakdown</h4>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                    {Object.entries(selectedRecord.sectionsData).map(([sec, data]: any, idx) => (
+                                                    {Object.entries(selectedRecord.sectionsData).map(([sec, data], idx) => (
                                                         <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-gray-200 text-sm shadow-sm">
                                                             <span className="text-gray-800 font-medium">{sec}</span>
                                                             <span className="font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">{data.percentage}%</span>
@@ -1835,7 +1835,7 @@ export default function App() {
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-100">
-                                                            {selectedRecord.questionsData.map((q: any, idx: number) => (
+                                                            {selectedRecord.questionsData.map((q, idx) => (
                                                                 <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                                                                     <td className="p-2.5 text-gray-800">{q.q}</td>
                                                                     <td className="p-2.5 text-center font-bold text-blue-700">{q.val} / 5</td>
