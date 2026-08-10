@@ -56,7 +56,7 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const GOOGLE_SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzQ1V7NnL1iNf16J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29/exec";
+const GOOGLE_SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwoV2GcxKCG1wkhoT60u8GA_947NXpxB68TS_NjhmD3wCgMJdsrpWbalyF-UxN2qCfc8w/exec";
 
 const STAFF_LIST = [
     { name: 'Abdul Ganee Ali', email: 'abdulganee@hdhatollschool.edu.mv', designation: 'Principal' },
@@ -634,7 +634,7 @@ export default function App() {
             try {
                 const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring criteria and observer comments from their recent lesson observations, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Provide a simple numbered list without markdown asterisks.\n\nLowest Scoring Areas: ${bottom3.map(w => w.q).join(', ')}\n\nObserver Comments: ${fd.get('generalComments')}`;
                 const payload = { contents: [{ parts: [{ text: prompt }] }] };
-                const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
+                const apiKey = ""; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -754,7 +754,7 @@ export default function App() {
             try {
                 const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring book checking criteria and observer comments, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Provide a simple numbered list without markdown asterisks.\n\nLowest Scoring Areas: ${bottom3.map(w => w.q).join(', ')}\n\nObserver Comments: ${fd.get('feedback')}`;
                 const payload = { contents: [{ parts: [{ text: prompt }] }] };
-                const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
+                const apiKey = ""; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -851,7 +851,7 @@ export default function App() {
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 tools: [{ "google_search": {} }]
             };
-            const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
+            const apiKey = ""; 
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
 
             const response = await fetch(apiUrl, {
