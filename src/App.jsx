@@ -10,15 +10,11 @@ import {
     Lock,
     AlertCircle,
     CheckCircle2,
-    Sparkles,
-    ChevronRight,
     BarChart3,
     Settings,
     Key,
     Mail,
     Shield,
-    MessageSquare,
-    Send,
     Printer,
     FileText,
     Download,
@@ -39,6 +35,7 @@ import {
     sendPasswordResetEmail
 } from "firebase/auth";
 import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -55,8 +52,9 @@ const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
-const GOOGLE_SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwoV2GcxKCG1wkhoT60u8GA_947NXpxB68TS_NjhmD3wCgMJdsrpWbalyF-UxN2qCfc8w/exec";
+const GOOGLE_SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzQ1V7NnL1iNf16J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29/exec";
 
 const STAFF_LIST = [
     { name: 'Abdul Ganee Ali', email: 'abdulganee@hdhatollschool.edu.mv', designation: 'Principal' },
@@ -198,6 +196,283 @@ const LESSON_SECTIONS = [
     }
 ];
 
+const generateHTMLString = (record) => {
+    const isLesson = record.Type === 'Lesson Observation' || record.type === 'Lesson';
+
+    let contentHtml = '';
+
+    if (isLesson) {
+        // Group questions by section for highly detailed PDF
+        let sectionsMap = {};
+        if (record.questionsData && Array.isArray(record.questionsData)) {
+            record.questionsData.forEach(qItem => {
+                const secTitle = qItem.section || "General Criteria";
+                if (!sectionsMap[secTitle]) sectionsMap[secTitle] = [];
+                sectionsMap[secTitle].push(qItem);
+            });
+        }
+
+        const sectionsHtml = Object.keys(sectionsMap).length > 0 ? Object.entries(sectionsMap).map(([secTitle, qList]) => {
+            const secScoreData = record.sectionsData && record.sectionsData[secTitle];
+            const secPercentBadge = secScoreData ? `<span style="float: right; font-size: 11px; background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 4px; font-weight: bold;">${secScoreData.percentage}%</span>` : '';
+            
+            const rows = qList.map((qItem, idx) => `
+                <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f9fafb'}; font-size: 11px;">
+                    <td style="padding: 6px 8px; border: 1px solid #e5e7eb; color: #374151;">${qItem.q}</td>
+                    <td style="padding: 6px 8px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #1d4ed8; width: 70px;">${qItem.val === 'NN' ? 'NN' : qItem.val + ' / 5'}</td>
+                </tr>
+            `).join('');
+
+            return `
+                <div style="margin-bottom: 12px; page-break-inside: auto;">
+                    <div style="background: #f3f4f6; padding: 6px 10px; border: 1px solid #e5e7eb; border-bottom: none; font-weight: bold; font-size: 13px; color: #1f2937; page-break-after: avoid;">
+                        ${secTitle} ${secPercentBadge}
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px; page-break-inside: auto;">
+                        <thead>
+                            <tr style="background: #e5e7eb; font-size: 11px; color: #4b5563; page-break-inside: avoid;">
+                                <th style="padding: 6px 8px; border: 1px solid #d1d5db; text-align: left;">Criteria Description</th>
+                                <th style="padding: 6px 8px; border: 1px solid #d1d5db; text-align: center;">Rating</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }).join('') : `<p style="font-size: 12px; color: #6b7280; italic;">No granular criteria data available for this record.</p>`;
+
+        const lessonPlanEvalBlock = record.lessonPlanEvaluation ? `
+            <div style="margin-top: 16px; page-break-inside: avoid; background: #eef2ff; border: 1px solid #c7d2fe; padding: 12px; border-radius: 6px;">
+                <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #3730a3; text-transform: uppercase; font-weight: bold;">Lesson Plan AI Evaluation</h4>
+                <div style="font-size: 11px; color: #312e81; white-space: pre-wrap; line-height: 1.5;">${record.lessonPlanEvaluation}</div>
+            </div>
+        ` : '';
+
+        const aiSuggestionsBlock = (record.AI_Suggestions || record.aiSuggestions) ? `
+            <div style="margin-top: 16px; page-break-inside: avoid; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 6px;">
+                <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #166534; text-transform: uppercase; font-weight: bold;">AI Pedagogical Mentoring Strategies</h4>
+                <div style="font-size: 11px; color: #14532d; white-space: pre-wrap; line-height: 1.5;">${record.AI_Suggestions || record.aiSuggestions}</div>
+            </div>
+        ` : '';
+
+        contentHtml = `
+            ${sectionsHtml}
+            ${lessonPlanEvalBlock}
+            ${aiSuggestionsBlock}
+        `;
+    } else {
+        // Book checking detailed form content
+        contentHtml = `
+            <div style="margin-bottom: 20px; page-break-inside: avoid;">
+                <h3 style="font-size: 14px; font-weight: bold; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin-bottom: 12px; color: #065f46;">Grading Dimensions Breakdown</h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                    <thead>
+                        <tr style="background: #ecfdf5; color: #047857;">
+                            <th style="padding: 8px; border: 1px solid #a7f3d0; text-align: left;">Dimension</th>
+                            <th style="padding: 8px; border: 1px solid #a7f3d0; text-align: center; width: 80px;">Weight</th>
+                            <th style="padding: 8px; border: 1px solid #a7f3d0; text-align: center; width: 100px;">Rating (1-4)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">1. Regularity in marking</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">35%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim1_Regularity !== undefined ? record.Dim1_Regularity : '-'} / 4</td></tr>
+                        <tr style="background: #f9fafb;"><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">2. Accuracy comments given</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">25%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim2_Accuracy !== undefined ? record.Dim2_Accuracy : '-'} / 4</td></tr>
+                        <tr><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">3. Needs Improvement in marking</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">5%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim3_NeedsImp !== undefined ? record.Dim3_NeedsImp : '-'} / 4</td></tr>
+                        <tr style="background: #f9fafb;"><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">4. Adequate work given / Constructive</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">15%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim4_Adequate !== undefined ? record.Dim4_Adequate : '-'} / 4</td></tr>
+                        <tr><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">5. Neatness in marking</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">5%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim5_Neatness !== undefined ? record.Dim5_Neatness : '-'} / 4</td></tr>
+                        <tr style="background: #f9fafb;"><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">6. Date and signature given</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">5%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim6_DateSig !== undefined ? record.Dim6_DateSig : '-'} / 4</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="margin-bottom: 20px; page-break-inside: avoid;">
+                <h3 style="font-size: 14px; font-weight: bold; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin-bottom: 12px; color: #065f46;">Details of Student Work Observations</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="background: #f9fafb; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px;">
+                        <strong style="color: #374151; display: block; margin-bottom: 4px;">Writing of date in student work:</strong>
+                        <span style="color: #4b5563;">${record.Work_Date_Comment || 'No comment.'}</span>
+                    </div>
+                    <div style="background: #f9fafb; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px;">
+                        <strong style="color: #374151; display: block; margin-bottom: 4px;">Drawing of Margins:</strong>
+                        <span style="color: #4b5563;">${record.Work_Margin_Comment || 'No comment.'}</span>
+                    </div>
+                    <div style="background: #f9fafb; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px;">
+                        <strong style="color: #374151; display: block; margin-bottom: 4px;">Neatness of the work:</strong>
+                        <span style="color: #4b5563;">${record.Work_Neatness_Comment || 'No comment.'}</span>
+                    </div>
+                    <div style="background: #f9fafb; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px;">
+                        <strong style="color: #374151; display: block; margin-bottom: 4px;">Completion of the work:</strong>
+                        <span style="color: #4b5563;">${record.Work_Completion_Comment || 'No comment.'}</span>
+                    </div>
+                </div>
+            </div>
+            
+            ${(record.AI_Suggestions || record.aiSuggestions) ? `
+                <div style="margin-bottom: 20px; page-break-inside: avoid; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 6px;">
+                    <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #166534; text-transform: uppercase; font-weight: bold;">AI Mentoring Strategies</h4>
+                    <div style="font-size: 11px; color: #14532d; white-space: pre-wrap; line-height: 1.5;">${record.AI_Suggestions || record.aiSuggestions}</div>
+                </div>
+            ` : ''}
+        `;
+    }
+
+    return `
+        <div style="font-family: Arial, sans-serif; padding: 24px; color: #1f2937; max-width: 800px; margin: auto; background: #ffffff;">
+            <div style="text-align: center; border-bottom: 3px double #1e3a8a; padding-bottom: 12px; margin-bottom: 20px;">
+                <h1 style="font-size: 26px; font-weight: bold; margin: 0; color: #1e3a8a; letter-spacing: 1.5px; font-family: Georgia, serif;">HDH ATOLL SCHOOL</h1>
+                <p style="font-size: 12px; color: #4b5563; margin: 4px 0 0 0; text-transform: uppercase; font-weight: 600;">
+                    ${isLesson ? 'Key Stage - Lesson Observation Detailed Report' : 'School Supervision - Checking of Student Work Report'}
+                </p>
+                <p style="font-size: 10px; color: #9ca3af; margin-top: 2px;">Official Assessment System Document</p>
+            </div>
+            
+            <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse; font-size: 12px;">
+                <tr>
+                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb; width: 25%;">
+                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Assessment Date:</strong><br/>
+                        <span style="font-weight: bold; color: #111827;">${record.Date || record.date || 'N/A'}</span>
+                    </td>
+                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb; width: 25%;">
+                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Teacher:</strong><br/>
+                        <span style="font-weight: bold; color: #111827;">${record.Teacher || record.teacherName || 'N/A'}</span>
+                    </td>
+                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb; width: 25%;">
+                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Class & Subject:</strong><br/>
+                        <span style="font-weight: bold; color: #111827;">${record.Class || record.class || ''} - ${record.Subject || record.subject || ''}</span>
+                    </td>
+                    <td style="padding: 8px 10px; border: 1px solid #bfdbfe; background: #eff6ff; text-align: center; width: 25%;">
+                        <strong style="color: #1e40af; font-size: 10px; text-transform: uppercase;">Total Score:</strong><br/>
+                        <span style="font-size: 20px; font-weight: bold; color: #1d4ed8;">${record.Total_Percentage || record.percentage || record.percentageScore || 0}%</span>
+                    </td>
+                </tr>
+                ${isLesson ? `
+                <tr>
+                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb;" colspan="2">
+                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Topic:</strong><br/>
+                        <span style="font-weight: bold; color: #111827;">${record.Topic || 'N/A'}</span>
+                    </td>
+                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb;" colspan="2">
+                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Students / Observer:</strong><br/>
+                        <span style="font-weight: bold; color: #111827;">${record.Students || 'N/A'} Students | Observer: ${record.Observer || 'Admin'}</span>
+                    </td>
+                </tr>
+                ` : `
+                <tr>
+                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb;" colspan="2">
+                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Books Completion:</strong><br/>
+                        <span style="font-weight: bold; color: #111827;">${record.Students_Completed || 0} / ${record.Students_Total || 1} Completed (${record.Students_Submitted || 0} Submitted)</span>
+                    </td>
+                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb;" colspan="2">
+                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Observer Email:</strong><br/>
+                        <span style="font-weight: bold; color: #111827;">${record.Observer || 'Admin'}</span>
+                    </td>
+                </tr>
+                `}
+            </table>
+
+            ${contentHtml}
+
+            <div style="margin-top: 20px; page-break-inside: avoid;">
+                <h3 style="font-size: 13px; font-weight: bold; border-bottom: 2px solid #3b82f6; padding-bottom: 4px; margin-bottom: 8px; color: #1d4ed8;">Observer Comments & Constructive Feedback</h3>
+                <div style="background: #f9fafb; border: 1px solid #e5e7eb; padding: 12px; border-radius: 6px; font-size: 11px; color: #374151; white-space: pre-wrap; min-height: 60px; line-height: 1.5;">
+                    ${record.Comments || record.generalComments || record.teacherFeedback || '<span style="color: #9ca3af; italic;">No additional comments recorded.</span>'}
+                </div>
+            </div>
+
+            <div style="margin-top: 35px; padding-top: 15px; page-break-inside: avoid;">
+                <table style="width: 100%; text-align: center; font-size: 11px;">
+                    <tr>
+                        <td style="width: 33%;">
+                            <div style="border-bottom: 1px solid #9ca3af; width: 80%; margin: 0 auto 6px auto;"></div>
+                            <strong style="color: #374151;">Teacher Signature</strong><br/>
+                            <span style="color: #6b7280; font-size: 10px;">${record.Teacher || record.teacherName || ''}</span>
+                        </td>
+                        <td style="width: 33%;">
+                            <div style="border-bottom: 1px solid #9ca3af; width: 80%; margin: 0 auto 6px auto;"></div>
+                            <strong style="color: #374151;">Observer Signature</strong><br/>
+                            <span style="color: #6b7280; font-size: 10px;">${record.Observer || ''}</span>
+                        </td>
+                        <td style="width: 33%;">
+                            <div style="border-bottom: 1px solid #9ca3af; width: 80%; margin: 0 auto 6px auto;"></div>
+                            <strong style="color: #374151;">Management Signature</strong><br/>
+                            <span style="color: #6b7280; font-size: 10px;">Leading Teacher / Principal</span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    `;
+};
+
+const getHtml2Pdf = async () => {
+    if (window.html2pdf) return window.html2pdf;
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+        script.onload = () => resolve(window.html2pdf);
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+};
+
+const generateAndUploadPDF = async (recordData, appStorage) => {
+    try {
+        const htmlContent = generateHTMLString(recordData);
+        const html2pdf = await getHtml2Pdf();
+        const element = document.createElement('div');
+        element.innerHTML = htmlContent;
+        
+        const opt = {
+            margin:       10,
+            filename:     `${recordData.Type.replace(/ /g, '_')}_${recordData.Teacher.replace(/ /g, '_')}_${Date.now()}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        const pdfBlob = await html2pdf().from(element).set(opt).outputPdf('blob');
+        
+        const filename = `reports/${opt.filename}`;
+        const fileRef = storageRef(appStorage, filename);
+        await uploadBytes(fileRef, pdfBlob);
+        const downloadURL = await getDownloadURL(fileRef);
+        
+        return downloadURL;
+    } catch (error) {
+        console.error("PDF Generation/Upload Error:", error);
+        return null;
+    }
+};
+
+const downloadPdfCopy = async (record, showNotification) => {
+    try {
+        if (showNotification) showNotification("Preparing high-quality PDF download...", "success");
+        const htmlContent = generateHTMLString(record);
+        const html2pdf = await getHtml2Pdf();
+        const element = document.createElement('div');
+        element.innerHTML = htmlContent;
+        
+        const typeName = (record.Type || record.type || 'Assessment').replace(/ /g, '_');
+        const teacherName = (record.Teacher || record.teacherName || 'Teacher').replace(/ /g, '_');
+        const dateStr = (record.Date || record.date || 'Record').replace(/[/\\?%*:|"<>]/g, '-');
+        
+        const opt = {
+            margin:       8,
+            filename:     `HDH_Atoll_School_${typeName}_${teacherName}_${dateStr}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        await html2pdf().from(element).set(opt).save();
+        if (showNotification) showNotification("PDF report downloaded successfully!");
+    } catch (error) {
+        console.error("Direct PDF Download Error:", error);
+        if (showNotification) showNotification("Failed to generate PDF. Please try local print option.", "error");
+    }
+};
+
 export default function App() {
     const [user, setUser] = useState(null);
     const [role, setRole] = useState(null);
@@ -217,13 +492,7 @@ export default function App() {
     const [selectedRecord, setSelectedRecord] = useState(null); 
     const [editingRecord, setEditingRecord] = useState(null);
     
-    const [aiFeedback, setAiFeedback] = useState('');
-    const [aiLoading, setAiLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
-    const [lessonPlanFile, setLessonPlanFile] = useState(null);
-    const [lessonPlanEval, setLessonPlanEval] = useState('');
-    const [isAnalyzingPdf, setIsAnalyzingPdf] = useState(false);
 
     const [pwdCurrent, setPwdCurrent] = useState('');
     const [pwdNew, setPwdNew] = useState('');
@@ -232,10 +501,6 @@ export default function App() {
 
     const [adminRolesMap, setAdminRolesMap] = useState({});
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
-    
-    const [chatHistory, setChatHistory] = useState([]);
-    const [chatInput, setChatInput] = useState('');
-    const [isChatLoading, setIsChatLoading] = useState(false);
 
     const showNotification = (message, type = 'success') => {
         setNotification({ message, type });
@@ -482,8 +747,6 @@ export default function App() {
         setEditingRecord(record);
         setSelectedRecord(null);
         setCurrentView(record.Type === 'Lesson Observation' || record.type === 'Lesson' ? 'lessonObs' : 'bookCheck');
-        setLessonPlanEval(record.lessonPlanEvaluation || record.Lesson_Plan_Eval || "");
-        setLessonPlanFile(null);
         window.scrollTo(0, 0);
     };
 
@@ -503,75 +766,40 @@ export default function App() {
         }
     };
 
-    const handleFileChange = (e) => {
-        if (e.target.files && e.target.files[0]) {
-            setLessonPlanFile(e.target.files[0]);
-        }
-    };
-
-    const handleAnalyzePdf = async () => {
-        if (!lessonPlanFile) return;
-        setIsAnalyzingPdf(true);
-        setLessonPlanEval('');
-
+    const sendEmailNotification = async (payload, pdfUrl, isUpdate = false) => {
+        if (!payload.TeacherEmail || offlineMode || !pdfUrl) return;
+        
         try {
-            const reader = new FileReader();
-            reader.readAsDataURL(lessonPlanFile);
-            reader.onload = async () => {
-                const base64Data = reader.result.split(',')[1];
-                
-                const prompt = "Act as an expert school principal. Analyze this attached lesson plan PDF. Evaluate key attributes such as: 1. Clarity of learning intentions. 2. Appropriateness and sequencing of activities. 3. Differentiation for varied learner needs. 4. Alignment with assessment strategies. Provide a concise, professional evaluation highlighting strengths and areas for improvement.";
-                
-                const payload = {
-                    contents: [
-                        {
-                            role: "user",
-                            parts: [
-                                { text: prompt },
-                                {
-                                    inlineData: {
-                                        mimeType: "application/pdf",
-                                        data: base64Data
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                };
-
-                const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-                try {
-                    const response = await fetch(apiUrl, { 
-                        method: 'POST', 
-                        headers: { 'Content-Type': 'application/json' }, 
-                        body: JSON.stringify(payload) 
-                    });
-                    const result = await response.json();
-                    
-                    if (result.candidates && result.candidates.length > 0) {
-                        setLessonPlanEval(result.candidates[0].content.parts[0].text);
-                        showNotification("Lesson plan analyzed successfully!");
-                    } else {
-                        setLessonPlanEval("Could not evaluate the lesson plan. Please ensure it's a readable text-based PDF.");
-                        showNotification("Analysis failed.", "error");
-                    }
-                } catch (fetchErr) {
-                    console.error("Fetch Error:", fetchErr);
-                    setLessonPlanEval("Error communicating with AI mentor.");
+            // Writes to the 'mail' collection (Firebase "Trigger Email" extension).
+            await addDoc(collection(db, "mail"), {
+                to: [payload.TeacherEmail],
+                message: {
+                    subject: `${isUpdate ? 'Updated' : 'New'} ${payload.Type} Report - HDH Atoll School`,
+                    html: `
+                        <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+                            <div style="background: #1e3a8a; color: white; padding: 20px; text-align: center;">
+                                <h2 style="margin: 0; letter-spacing: 1px;">HDH ATOLL SCHOOL</h2>
+                                <p style="margin: 5px 0 0 0; opacity: 0.9;">Supervision & Assessment Portal</p>
+                            </div>
+                            <div style="padding: 20px;">
+                                <p>Dear <strong>${payload.Teacher}</strong>,</p>
+                                <p>A ${isUpdate ? 'previously submitted' : 'new'} <strong>${payload.Type}</strong> record has been ${isUpdate ? 'updated' : 'submitted'} by ${payload.Observer} on ${payload.Date}.</p>
+                                <div style="background: #f3f4f6; padding: 15px; border-radius: 6px; margin: 20px 0;">
+                                    <p style="margin: 0 0 10px 0;"><strong>Class/Subject:</strong> ${payload.Class || 'N/A'} - ${payload.Subject || 'N/A'}</p>
+                                    <p style="margin: 0;"><strong>Overall Score:</strong> <span style="font-size: 18px; font-weight: bold; color: #1d4ed8;">${payload.Total_Percentage}%</span></p>
+                                </div>
+                                <p>Please click the button below to view and download your complete, detailed PDF report:</p>
+                                <div style="text-align: center; margin: 30px 0;">
+                                    <a href="${pdfUrl}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Detailed PDF Report</a>
+                                </div>
+                                <p style="font-size: 12px; color: #6b7280; border-top: 1px solid #eee; padding-top: 15px;">This is an automated message. Please do not reply directly to this email.</p>
+                            </div>
+                        </div>
+                    `
                 }
-                setIsAnalyzingPdf(false);
-            };
-            reader.onerror = (error) => {
-                console.error("Error reading file:", error);
-                setLessonPlanEval("Error reading file.");
-                setIsAnalyzingPdf(false);
-            }
-        } catch (err) {
-            console.error("Reader Error:", err);
-            setLessonPlanEval("Error processing the file.");
-            setIsAnalyzingPdf(false);
+            });
+        } catch (error) {
+            console.error("Error queuing email:", error);
         }
     };
 
@@ -596,8 +824,7 @@ export default function App() {
             Topic: fd.get('topic'),
             Students: fd.get('students'),
             Observer: user.email,
-            Comments: fd.get('generalComments'),
-            Lesson_Plan_Eval: fd.get('lessonPlanEval') || ""
+            Comments: fd.get('generalComments')
         };
 
         const staff = STAFF_LIST.find(s => s.name === fd.get('teacherName'));
@@ -626,27 +853,6 @@ export default function App() {
         
         const percentage = totalMax > 0 ? ((totalScore / totalMax) * 100).toFixed(1) : 0;
         sheetsPayload.Total_Percentage = percentage;
-        
-        const bottom3 = [...allQuestions].sort((a, b) => a.val - b.val).slice(0, 3);
-        let aiSuggestions = editingRecord ? (editingRecord.AI_Suggestions || editingRecord.aiSuggestions || "") : "";
-        
-        if (!editingRecord || !aiSuggestions) {
-            try {
-                const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring criteria and observer comments from their recent lesson observations, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Provide a simple numbered list without markdown asterisks.\n\nLowest Scoring Areas: ${bottom3.map(w => w.q).join(', ')}\n\nObserver Comments: ${fd.get('generalComments')}`;
-                const payload = { contents: [{ parts: [{ text: prompt }] }] };
-                const apiKey = ""; 
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                const result = await response.json();
-                if (result.candidates && result.candidates.length > 0) {
-                    aiSuggestions = result.candidates[0].content.parts[0].text;
-                }
-            } catch (err) {
-                console.warn("AI Generation failed on submit.", err);
-            }
-        }
-        sheetsPayload.AI_Suggestions = aiSuggestions;
 
         const dbData = { 
             ...sheetsPayload, 
@@ -654,12 +860,18 @@ export default function App() {
             sectionsData, 
             questionsData: allQuestions, 
             generalComments: fd.get('generalComments'), 
-            aiSuggestions, 
-            lessonPlanEvaluation: fd.get('lessonPlanEval') || "", 
             timestamp: sheetsPayload.Timestamp 
         };
 
         try {
+            if (!offlineMode) {
+                const pdfUrl = await generateAndUploadPDF(dbData, storage);
+                if (pdfUrl) {
+                    dbData.PDF_Report_URL = pdfUrl;
+                    sheetsPayload.PDF_Report_URL = pdfUrl;
+                }
+            }
+
             if (offlineMode) {
                 if (editingRecord) {
                     LOCAL_MEMORY_DB.lesson_observations = LOCAL_MEMORY_DB.lesson_observations.map(r => r.timestamp === editingRecord.timestamp ? dbData : r);
@@ -669,8 +881,10 @@ export default function App() {
             } else {
                 if (editingRecord && editingRecord.id) {
                     await setDoc(doc(db, "lesson_observations", editingRecord.id), dbData);
+                    await sendEmailNotification(sheetsPayload, dbData.PDF_Report_URL, true);
                 } else {
                     await addDoc(collection(db, "lesson_observations"), dbData);
+                    await sendEmailNotification(sheetsPayload, dbData.PDF_Report_URL, false);
                 }
             }
             
@@ -678,11 +892,9 @@ export default function App() {
             
             e.target.reset();
             setIsSubmitting(false);
-            setLessonPlanFile(null);
-            setLessonPlanEval('');
             setEditingRecord(null);
             
-            showNotification(editingRecord ? "Observation updated successfully!" : "Observation submitted & AI Strategies generated!");
+            showNotification(editingRecord ? "Observation updated successfully!" : "Observation submitted & PDF generated!");
             fetchDashboardData(true);
             setCurrentView('dashboard');
             window.scrollTo(0, 0);
@@ -739,44 +951,22 @@ export default function App() {
             Comments: fd.get('feedback')
         };
 
-        let aiSuggestions = editingRecord ? (editingRecord.AI_Suggestions || editingRecord.aiSuggestions || "") : "";
-        if (!editingRecord || !aiSuggestions) {
-            const dims = [
-                { q: 'Regularity in marking', val: dim1 },
-                { q: 'Accuracy comments given', val: dim2 },
-                { q: 'Needs Improvement in marking', val: dim3 },
-                { q: 'Adequate work given / Constructive', val: dim4 },
-                { q: 'Neatness in marking', val: dim5 },
-                { q: 'Date and signature given', val: dim6 }
-            ];
-            const bottom3 = dims.sort((a, b) => a.val - b.val).slice(0, 3);
-            
-            try {
-                const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring book checking criteria and observer comments, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Provide a simple numbered list without markdown asterisks.\n\nLowest Scoring Areas: ${bottom3.map(w => w.q).join(', ')}\n\nObserver Comments: ${fd.get('feedback')}`;
-                const payload = { contents: [{ parts: [{ text: prompt }] }] };
-                const apiKey = ""; 
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                const result = await response.json();
-                if (result.candidates && result.candidates.length > 0) {
-                    aiSuggestions = result.candidates[0].content.parts[0].text;
-                }
-            } catch (err) {
-                console.warn("AI Generation failed on submit.", err);
-            }
-        }
-        sheetsPayload.AI_Suggestions = aiSuggestions;
-
         const dbData = { 
             ...sheetsPayload, 
             percentageScore: sheetsPayload.Total_Percentage, 
             timestamp: sheetsPayload.Timestamp, 
-            teacherFeedback: fd.get('feedback'),
-            aiSuggestions
+            teacherFeedback: fd.get('feedback')
         };
 
         try {
+            if (!offlineMode) {
+                const pdfUrl = await generateAndUploadPDF(dbData, storage);
+                if (pdfUrl) {
+                    dbData.PDF_Report_URL = pdfUrl;
+                    sheetsPayload.PDF_Report_URL = pdfUrl;
+                }
+            }
+
             if (offlineMode) {
                 if (editingRecord) {
                     LOCAL_MEMORY_DB.book_checkings = LOCAL_MEMORY_DB.book_checkings.map(r => r.timestamp === editingRecord.timestamp ? dbData : r);
@@ -786,8 +976,10 @@ export default function App() {
             } else {
                 if (editingRecord && editingRecord.id) {
                     await setDoc(doc(db, "book_checkings", editingRecord.id), dbData);
+                    await sendEmailNotification(sheetsPayload, dbData.PDF_Report_URL, true);
                 } else {
                     await addDoc(collection(db, "book_checkings"), dbData);
+                    await sendEmailNotification(sheetsPayload, dbData.PDF_Report_URL, false);
                 }
             }
             
@@ -797,7 +989,7 @@ export default function App() {
             setIsSubmitting(false);
             setEditingRecord(null);
             
-            showNotification(editingRecord ? "Book checking updated successfully!" : "Book checking submitted & AI Strategies generated!");
+            showNotification(editingRecord ? "Book checking updated successfully!" : "Book checking submitted & PDF generated!");
             fetchDashboardData(true);
             setCurrentView('dashboard');
             window.scrollTo(0, 0);
@@ -807,132 +999,6 @@ export default function App() {
             setIsSubmitting(false);
         }
     };
-
-    const generateAI = async (weakAreas, comments) => {
-        setAiLoading(true);
-        setAiFeedback('');
-        
-        const prompt = `Act as an expert school principal mentoring a teacher. Based on the following lowest-scoring criteria and observer comments from their recent lesson observations, provide 3 highly specific, actionable, and encouraging pedagogical strategies they can implement. Do not use bold markdown. Provide a simple numbered list.\n\nLowest Scoring Areas: ${weakAreas.map(w => w.q).join(', ')}\n\nObserver Comments: ${comments.join(' | ')}`;
-        const payload = { contents: [{ parts: [{ text: prompt }] }] };
-        const apiKey = "AQ.Ab8RN6LudEMUpBl0xo1XdNfs0hWDcTJj3ISNAa3DRmWeYazA6g"; 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-        try {
-            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            const result = await response.json();
-            if (result.candidates && result.candidates.length > 0) {
-                setAiFeedback(result.candidates[0].content.parts[0].text);
-            }
-        } catch (e) {
-            setAiFeedback("Failed to generate AI suggestions. Please try again.");
-        }
-        setAiLoading(false);
-    };
-
-    const handleSendMessage = async (e) => {
-        e.preventDefault();
-        if (!chatInput.trim()) return;
-
-        const newUserMessage = { role: "user", parts: [{ text: chatInput }] };
-        const updatedHistory = [...chatHistory, newUserMessage];
-        setChatHistory(updatedHistory);
-        setChatInput('');
-        setIsChatLoading(true);
-
-        const contextData = role === 'teacher'
-            ? `Context: I am a teacher named ${teacherName} at HDH Atoll School.`
-            : `Context: I am an observer/admin at HDH Atoll School looking at school-wide data.`;
-
-        const systemPrompt = `Act as an expert pedagogical mentor and principal. You are encouraging, specific, and highly knowledgeable about modern teaching strategies. ${contextData} Keep responses concise, supportive, and formatted cleanly.`;
-
-        try {
-            const payload = {
-                contents: updatedHistory,
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                tools: [{ "google_search": {} }]
-            };
-            const apiKey = ""; 
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            const result = await response.json();
-            
-            if (result.candidates && result.candidates.length > 0) {
-                const text = result.candidates[0].content.parts[0].text;
-                setChatHistory(prev => [...prev, { role: "model", parts: [{ text }] }]);
-            } else {
-                showNotification("Failed to generate response.", "error");
-            }
-        } catch (err) {
-            showNotification("Connection to AI Mentor failed.", "error");
-        }
-        setIsChatLoading(false);
-    };
-
-    const renderAIMentor = () => (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[700px] max-h-[80vh]">
-            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-6 text-white flex items-center gap-3 shrink-0">
-                <MessageSquare size={28} className="text-indigo-100" />
-                <div>
-                    <h2 className="text-xl font-bold">AI Pedagogical Mentor</h2>
-                    <p className="text-sm text-indigo-100">Ask for teaching strategies, advice, or feedback analysis.</p>
-                </div>
-            </div>
-            
-            <div className="flex-1 p-6 overflow-y-auto bg-gray-50 flex flex-col gap-4">
-                {chatHistory.length === 0 && (
-                    <div className="text-center text-gray-500 my-auto p-4 flex flex-col items-center">
-                        <div className="bg-indigo-100 text-indigo-600 p-4 rounded-full mb-4">
-                            <MessageSquare size={32} />
-                        </div>
-                        <p className="font-bold text-gray-700 text-lg mb-2">Welcome to your AI Mentor!</p>
-                        <p className="text-sm max-w-md mx-auto mb-4">I am powered by the Gemini API with active web search capabilities. I can help you discover modern teaching methods, analyze assessment criteria, or suggest classroom activities.</p>
-                        <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm italic text-left w-full max-w-sm">
-                            <span className="font-semibold text-gray-600 not-italic block mb-1">Try asking:</span>
-                            "How can I improve student engagement during set induction for a science class?"
-                        </div>
-                    </div>
-                )}
-                {chatHistory.map((msg, idx) => (
-                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-4 text-sm whitespace-pre-wrap shadow-sm leading-relaxed ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white border border-gray-200 text-gray-800 rounded-tl-sm'}`}>
-                            {msg.parts[0].text}
-                        </div>
-                    </div>
-                ))}
-                {isChatLoading && (
-                    <div className="flex justify-start">
-                        <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm p-4 text-sm text-gray-500 flex items-center gap-2 shadow-sm">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200 flex gap-3 shrink-0">
-                <input 
-                    type="text" 
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Type your question here..." 
-                    className="flex-1 px-4 py-3 rounded-xl border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                />
-                <button 
-                    type="submit" 
-                    disabled={isChatLoading || !chatInput.trim()}
-                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-5 rounded-xl shadow transition flex items-center justify-center"
-                >
-                    <Send size={20} />
-                </button>
-            </form>
-        </div>
-    );
 
     const renderDashboard = () => {
         let viewTeacher = role === 'teacher' ? teacherName : selectedDashboardTeacher;
@@ -956,7 +1022,6 @@ export default function App() {
         let sectionAvgs = {};
         let top3 = [];
         let bottom3 = [];
-        let allComments = [];
 
         if (viewTeacher !== 'All' && totalLessons > 0) {
             let sectionTotals = {};
@@ -964,8 +1029,6 @@ export default function App() {
             let qStats = {};
 
             filteredLessons.forEach(l => {
-                if (l.Comments || l.generalComments) allComments.push(l.Comments || l.generalComments);
-                
                 if (l.sectionsData) {
                     Object.keys(l.sectionsData).forEach(sec => {
                         if (!sectionTotals[sec]) { sectionTotals[sec] = 0; sectionCounts[sec] = 0; }
@@ -1018,7 +1081,6 @@ export default function App() {
                                 value={selectedDashboardTeacher}
                                 onChange={(e) => {
                                     setSelectedDashboardTeacher(e.target.value);
-                                    setAiFeedback('');
                                 }}
                                 className="px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:ring-blue-500 outline-none bg-white text-sm"
                             >
@@ -1063,7 +1125,7 @@ export default function App() {
                 </div>
 
                 {viewTeacher !== 'All' && totalLessons > 0 && (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-1">
                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><BarChart3 size={20}/> Section Breakdown</h3>
                             <div className="space-y-4">
@@ -1107,27 +1169,6 @@ export default function App() {
                                     ))}
                                 </ul>
                             </div>
-                        </div>
-
-                        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl shadow-sm border border-blue-100 p-6 lg:col-span-1 flex flex-col">
-                            <h3 className="text-lg font-bold text-indigo-900 mb-2 flex items-center gap-2"><Sparkles size={20} className="text-blue-600"/> AI Mentoring</h3>
-                            <p className="text-xs text-indigo-700 mb-4">Generate targeted, actionable strategies based on this teacher's weakest areas and observer feedback.</p>
-                            
-                            {aiFeedback ? (
-                                <div className="bg-white rounded-lg p-4 shadow-inner text-sm text-gray-700 flex-1 overflow-y-auto border border-blue-100 whitespace-pre-wrap">
-                                    {aiFeedback}
-                                </div>
-                            ) : (
-                                <div className="flex-1 flex items-center justify-center bg-white/50 rounded-lg border border-dashed border-blue-200">
-                                    <button 
-                                        onClick={() => generateAI(bottom3, allComments)}
-                                        disabled={aiLoading || bottom3.length === 0}
-                                        className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium py-2 px-4 rounded-lg shadow transition flex items-center gap-2"
-                                    >
-                                        {aiLoading ? 'Analyzing Data...' : 'Generate Strategies'}
-                                    </button>
-                                </div>
-                            )}
                         </div>
                     </div>
                 )}
@@ -1382,45 +1423,6 @@ export default function App() {
                         </div>
                     </div>
                 ))}
-
-                <div className="mt-8 pt-6 border-t border-gray-200">
-                    <h3 className="font-bold text-lg text-gray-800 mb-3 flex items-center gap-2">
-                        <FileText size={20} className="text-indigo-600" />
-                        Upload Lesson Plan (PDF) for AI Evaluation
-                    </h3>
-                    <div className="bg-indigo-50/50 p-5 rounded-lg border border-indigo-100 space-y-4">
-                        <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
-                            <input 
-                                type="file" 
-                                accept="application/pdf"
-                                onChange={handleFileChange}
-                                className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 focus:outline-none"
-                            />
-                            <button 
-                                type="button"
-                                onClick={handleAnalyzePdf}
-                                disabled={!lessonPlanFile || isAnalyzingPdf}
-                                className="w-full md:w-auto whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 px-5 rounded-lg shadow-sm transition flex items-center justify-center gap-2"
-                            >
-                                {isAnalyzingPdf ? (
-                                    <>Analyzing PDF...</>
-                                ) : (
-                                    <><Sparkles size={16} /> Analyze Plan</>
-                                )}
-                            </button>
-                        </div>
-                        
-                        {lessonPlanEval && (
-                            <div className="mt-4 bg-white border border-indigo-200 p-4 rounded-lg shadow-sm">
-                                <h4 className="text-sm font-bold text-indigo-900 mb-2 uppercase tracking-wider">AI Evaluation Result</h4>
-                                <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                                    {lessonPlanEval}
-                                </div>
-                            </div>
-                        )}
-                        <input type="hidden" name="lessonPlanEval" value={lessonPlanEval} />
-                    </div>
-                </div>
 
                 <div className="mt-8 pt-6 border-t">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Overall Comments / Feedback provided to the Teacher</label>
@@ -1681,20 +1683,16 @@ export default function App() {
                 </div>
 
                 <div className="flex-1 px-4 space-y-2 mt-2">
-                    <button onClick={() => {setCurrentView('dashboard'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null); fetchDashboardData(true);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'dashboard' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
+                    <button onClick={() => {setCurrentView('dashboard'); setSidebarOpen(false); setEditingRecord(null); fetchDashboardData(true);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'dashboard' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
                         <LayoutDashboard size={20} /> Dashboard
-                    </button>
-                    
-                    <button onClick={() => {setCurrentView('aiMentor'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'aiMentor' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
-                        <MessageSquare size={20} /> AI Mentor
                     </button>
 
                     {role === 'observer' && (
                         <>
-                            <button onClick={() => {setCurrentView('lessonObs'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'lessonObs' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
+                            <button onClick={() => {setCurrentView('lessonObs'); setSidebarOpen(false); setEditingRecord(null); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'lessonObs' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
                                 <ClipboardCheck size={20} /> Lesson Observation
                             </button>
-                            <button onClick={() => {setCurrentView('bookCheck'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'bookCheck' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
+                            <button onClick={() => {setCurrentView('bookCheck'); setSidebarOpen(false); setEditingRecord(null); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'bookCheck' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-200 hover:bg-blue-800/50'}`}>
                                 <BookOpenCheck size={20} /> Book Checking
                             </button>
                         </>
@@ -1702,7 +1700,7 @@ export default function App() {
                 </div>
 
                 <div className="p-4 border-t border-blue-800 space-y-2">
-                    <button onClick={() => {setCurrentView('settings'); setSidebarOpen(false); setEditingRecord(null); setLessonPlanEval(''); setLessonPlanFile(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'settings' ? 'bg-blue-800 text-white' : 'text-blue-200 hover:bg-blue-800/30'}`}>
+                    <button onClick={() => {setCurrentView('settings'); setSidebarOpen(false); setEditingRecord(null); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${currentView === 'settings' ? 'bg-blue-800 text-white' : 'text-blue-200 hover:bg-blue-800/30'}`}>
                         <Settings size={20} /> Settings
                     </button>
                     <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-300 hover:bg-red-900/30 transition">
@@ -1723,7 +1721,6 @@ export default function App() {
                     {currentView === 'dashboard' && renderDashboard()}
                     {currentView === 'lessonObs' && role === 'observer' && renderLessonObs()}
                     {currentView === 'bookCheck' && role === 'observer' && renderBookCheck()}
-                    {currentView === 'aiMentor' && renderAIMentor()}
                     {currentView === 'settings' && renderSettings()}
                 </div>
             </main>
@@ -1737,18 +1734,36 @@ export default function App() {
                             <h3 className="font-bold text-lg flex items-center gap-2">
                                 <FileText size={20} className="text-gray-300" /> Official Assessment Record
                             </h3>
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <button 
+                                    onClick={() => downloadPdfCopy(selectedRecord, showNotification)} 
+                                    className="bg-green-600 hover:bg-green-500 text-white px-3.5 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
+                                    title="Download complete PDF document directly"
+                                >
+                                    <Download size={16} /> Download PDF
+                                </button>
+
+                                {selectedRecord.PDF_Report_URL && (
+                                    <a 
+                                        href={selectedRecord.PDF_Report_URL} 
+                                        target="_blank" 
+                                        rel="noreferrer"
+                                        className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
+                                    >
+                                        Cloud PDF
+                                    </a>
+                                )}
                                 {role === 'observer' && (
                                     <>
                                         <button 
                                             onClick={() => handleEdit(selectedRecord)}
-                                            className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
+                                            className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
                                         >
                                             <Edit size={16} /> Edit
                                         </button>
                                         <button 
                                             onClick={() => handleDeleteRecord(selectedRecord)} 
-                                            className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
+                                            className="bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
                                         >
                                             <Trash2 size={16} /> Delete
                                         </button>
@@ -1756,9 +1771,9 @@ export default function App() {
                                 )}
                                 <button 
                                     onClick={() => window.print()} 
-                                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
+                                    className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
                                 >
-                                    <Download size={16} /> Save as PDF
+                                    <Printer size={16} /> Print
                                 </button>
                                 <button onClick={() => setSelectedRecord(null)} className="p-1 hover:bg-white/20 rounded-lg transition"><X size={24} /></button>
                             </div>
@@ -1892,28 +1907,6 @@ export default function App() {
                                             </div>
                                         </div>
                                     </>
-                                )}
-
-                                {selectedRecord.lessonPlanEvaluation && (
-                                    <div className="mb-8 print-break-inside-avoid">
-                                        <h4 className="font-bold text-gray-900 border-b-2 border-gray-200 pb-2 mb-4 text-lg flex items-center gap-2">
-                                            <Sparkles size={18} className="text-indigo-600" /> Lesson Plan AI Evaluation
-                                        </h4>
-                                        <div className="bg-indigo-50/50 border border-indigo-100 p-5 rounded-xl text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">
-                                            {selectedRecord.lessonPlanEvaluation}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {selectedRecord.AI_Suggestions && (
-                                    <div className="mb-8 print-break-inside-avoid">
-                                        <h4 className="font-bold text-gray-900 border-b-2 border-gray-200 pb-2 mb-4 text-lg flex items-center gap-2">
-                                            <Sparkles size={18} className="text-indigo-600" /> AI Mentoring Strategies
-                                        </h4>
-                                        <div className="bg-indigo-50/50 border border-indigo-100 p-5 rounded-xl text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">
-                                            {selectedRecord.AI_Suggestions}
-                                        </div>
-                                    </div>
                                 )}
 
                                 <div className="mb-10 print-break-inside-avoid">
