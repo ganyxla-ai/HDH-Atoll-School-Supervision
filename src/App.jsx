@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     LayoutDashboard, 
     ClipboardCheck, 
@@ -97,7 +97,8 @@ const OBSERVER_EMAILS = [
     'iashraf@hdhatollschool.edu.mv',
     'nazim@hdhatollschool.edu.mv',
     'arusham@hdhatollschool.edu.mv',
-    'fazil@hdhatollschool.edu.mv'
+    'fazil@hdhatollschool.edu.mv',
+    'shiuna@hdhatollschool.edu.mv'
 ];
 
 let LOCAL_MEMORY_DB = {
@@ -198,205 +199,149 @@ const LESSON_SECTIONS = [
 
 const generateHTMLString = (record) => {
     const isLesson = record.Type === 'Lesson Observation' || record.type === 'Lesson';
+    
+    let questionsHtml = '';
+    if (isLesson && record.questionsData) {
+        // Group questions by their assigned section to match the detailed layout
+        const sections = {};
+        record.questionsData.forEach(q => {
+            if (!sections[q.section]) sections[q.section] = [];
+            sections[q.section].push(q);
+        });
 
-    let contentHtml = '';
+        questionsHtml = Object.keys(sections).map(sectionTitle => {
+            const sectionQs = sections[sectionTitle];
+            const sectionData = record.sectionsData ? record.sectionsData[sectionTitle] : null;
+            const sectionPercentage = sectionData ? sectionData.percentage + '%' : '';
 
-    if (isLesson) {
-        // Group questions by section for highly detailed PDF
-        let sectionsMap = {};
-        if (record.questionsData && Array.isArray(record.questionsData)) {
-            record.questionsData.forEach(qItem => {
-                const secTitle = qItem.section || "General Criteria";
-                if (!sectionsMap[secTitle]) sectionsMap[secTitle] = [];
-                sectionsMap[secTitle].push(qItem);
-            });
-        }
-
-        const sectionsHtml = Object.keys(sectionsMap).length > 0 ? Object.entries(sectionsMap).map(([secTitle, qList]) => {
-            const secScoreData = record.sectionsData && record.sectionsData[secTitle];
-            const secPercentBadge = secScoreData ? `<span style="float: right; font-size: 11px; background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 4px; font-weight: bold;">${secScoreData.percentage}%</span>` : '';
+            const rows = sectionQs.map(q => {
+                const ratingStr = q.val === 'NN' ? 'NN' : q.val + ' / 5';
+                return `
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 10px 15px; font-size: 12px; color: #374151;">${q.q}</td>
+                        <td style="padding: 10px 15px; text-align: center; font-weight: bold; width: 80px; font-size: 12px; color: #1d4ed8;">${ratingStr}</td>
+                    </tr>
+                `;
+            }).join('');
             
-            const rows = qList.map((qItem, idx) => `
-                <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f9fafb'}; font-size: 11px;">
-                    <td style="padding: 6px 8px; border: 1px solid #e5e7eb; color: #374151;">${qItem.q}</td>
-                    <td style="padding: 6px 8px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #1d4ed8; width: 70px;">${qItem.val === 'NN' ? 'NN' : qItem.val + ' / 5'}</td>
-                </tr>
-            `).join('');
-
             return `
-                <div style="margin-bottom: 12px; page-break-inside: auto;">
-                    <div style="background: #f3f4f6; padding: 6px 10px; border: 1px solid #e5e7eb; border-bottom: none; font-weight: bold; font-size: 13px; color: #1f2937; page-break-after: avoid;">
-                        ${secTitle} ${secPercentBadge}
+                <div style="page-break-inside: avoid; margin-bottom: 24px; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden;">
+                    <div style="background: #f3f4f6; padding: 10px 15px; font-weight: bold; font-size: 14px; border-bottom: 1px solid #d1d5db; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #1f2937;">${sectionTitle}</span>
+                        <span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 4px; font-size: 12px;">${sectionPercentage}</span>
                     </div>
-                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px; page-break-inside: auto;">
-                        <thead>
-                            <tr style="background: #e5e7eb; font-size: 11px; color: #4b5563; page-break-inside: avoid;">
-                                <th style="padding: 6px 8px; border: 1px solid #d1d5db; text-align: left;">Criteria Description</th>
-                                <th style="padding: 6px 8px; border: 1px solid #d1d5db; text-align: center;">Rating</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows}
-                        </tbody>
+                    <div style="background: #f9fafb; padding: 8px 15px; font-size: 11px; font-weight: 600; color: #6b7280; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between;">
+                        <span>Criteria Description</span>
+                        <span style="width: 80px; text-align: center;">Rating</span>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; background: #ffffff;">
+                        ${rows}
                     </table>
                 </div>
             `;
-        }).join('') : `<p style="font-size: 12px; color: #6b7280; italic;">No granular criteria data available for this record.</p>`;
-
-        const lessonPlanEvalBlock = record.lessonPlanEvaluation ? `
-            <div style="margin-top: 16px; page-break-inside: avoid; background: #eef2ff; border: 1px solid #c7d2fe; padding: 12px; border-radius: 6px;">
-                <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #3730a3; text-transform: uppercase; font-weight: bold;">Lesson Plan AI Evaluation</h4>
-                <div style="font-size: 11px; color: #312e81; white-space: pre-wrap; line-height: 1.5;">${record.lessonPlanEvaluation}</div>
-            </div>
-        ` : '';
-
-        const aiSuggestionsBlock = (record.AI_Suggestions || record.aiSuggestions) ? `
-            <div style="margin-top: 16px; page-break-inside: avoid; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 6px;">
-                <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #166534; text-transform: uppercase; font-weight: bold;">AI Pedagogical Mentoring Strategies</h4>
-                <div style="font-size: 11px; color: #14532d; white-space: pre-wrap; line-height: 1.5;">${record.AI_Suggestions || record.aiSuggestions}</div>
-            </div>
-        ` : '';
-
-        contentHtml = `
-            ${sectionsHtml}
-            ${lessonPlanEvalBlock}
-            ${aiSuggestionsBlock}
-        `;
-    } else {
-        // Book checking detailed form content
-        contentHtml = `
-            <div style="margin-bottom: 20px; page-break-inside: avoid;">
-                <h3 style="font-size: 14px; font-weight: bold; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin-bottom: 12px; color: #065f46;">Grading Dimensions Breakdown</h3>
-                <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-                    <thead>
-                        <tr style="background: #ecfdf5; color: #047857;">
-                            <th style="padding: 8px; border: 1px solid #a7f3d0; text-align: left;">Dimension</th>
-                            <th style="padding: 8px; border: 1px solid #a7f3d0; text-align: center; width: 80px;">Weight</th>
-                            <th style="padding: 8px; border: 1px solid #a7f3d0; text-align: center; width: 100px;">Rating (1-4)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">1. Regularity in marking</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">35%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim1_Regularity !== undefined ? record.Dim1_Regularity : '-'} / 4</td></tr>
-                        <tr style="background: #f9fafb;"><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">2. Accuracy comments given</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">25%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim2_Accuracy !== undefined ? record.Dim2_Accuracy : '-'} / 4</td></tr>
-                        <tr><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">3. Needs Improvement in marking</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">5%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim3_NeedsImp !== undefined ? record.Dim3_NeedsImp : '-'} / 4</td></tr>
-                        <tr style="background: #f9fafb;"><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">4. Adequate work given / Constructive</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">15%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim4_Adequate !== undefined ? record.Dim4_Adequate : '-'} / 4</td></tr>
-                        <tr><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">5. Neatness in marking</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">5%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim5_Neatness !== undefined ? record.Dim5_Neatness : '-'} / 4</td></tr>
-                        <tr style="background: #f9fafb;"><td style="padding: 6px 8px; border: 1px solid #e5e7eb;">6. Date and signature given</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">5%</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #047857;">${record.Dim6_DateSig !== undefined ? record.Dim6_DateSig : '-'} / 4</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div style="margin-bottom: 20px; page-break-inside: avoid;">
-                <h3 style="font-size: 14px; font-weight: bold; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin-bottom: 12px; color: #065f46;">Details of Student Work Observations</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <div style="background: #f9fafb; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px;">
-                        <strong style="color: #374151; display: block; margin-bottom: 4px;">Writing of date in student work:</strong>
-                        <span style="color: #4b5563;">${record.Work_Date_Comment || 'No comment.'}</span>
-                    </div>
-                    <div style="background: #f9fafb; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px;">
-                        <strong style="color: #374151; display: block; margin-bottom: 4px;">Drawing of Margins:</strong>
-                        <span style="color: #4b5563;">${record.Work_Margin_Comment || 'No comment.'}</span>
-                    </div>
-                    <div style="background: #f9fafb; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px;">
-                        <strong style="color: #374151; display: block; margin-bottom: 4px;">Neatness of the work:</strong>
-                        <span style="color: #4b5563;">${record.Work_Neatness_Comment || 'No comment.'}</span>
-                    </div>
-                    <div style="background: #f9fafb; padding: 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px;">
-                        <strong style="color: #374151; display: block; margin-bottom: 4px;">Completion of the work:</strong>
-                        <span style="color: #4b5563;">${record.Work_Completion_Comment || 'No comment.'}</span>
-                    </div>
-                </div>
-            </div>
-            
-            ${(record.AI_Suggestions || record.aiSuggestions) ? `
-                <div style="margin-bottom: 20px; page-break-inside: avoid; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 6px;">
-                    <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #166534; text-transform: uppercase; font-weight: bold;">AI Mentoring Strategies</h4>
-                    <div style="font-size: 11px; color: #14532d; white-space: pre-wrap; line-height: 1.5;">${record.AI_Suggestions || record.aiSuggestions}</div>
-                </div>
-            ` : ''}
-        `;
+        }).join('');
     }
 
     return `
-        <div style="font-family: Arial, sans-serif; padding: 24px; color: #1f2937; max-width: 800px; margin: auto; background: #ffffff;">
-            <div style="text-align: center; border-bottom: 3px double #1e3a8a; padding-bottom: 12px; margin-bottom: 20px;">
-                <h1 style="font-size: 26px; font-weight: bold; margin: 0; color: #1e3a8a; letter-spacing: 1.5px; font-family: Georgia, serif;">HDH ATOLL SCHOOL</h1>
-                <p style="font-size: 12px; color: #4b5563; margin: 4px 0 0 0; text-transform: uppercase; font-weight: 600;">
-                    ${isLesson ? 'Key Stage - Lesson Observation Detailed Report' : 'School Supervision - Checking of Student Work Report'}
-                </p>
-                <p style="font-size: 10px; color: #9ca3af; margin-top: 2px;">Official Assessment System Document</p>
+        <div style="font-family: sans-serif; padding: 20px; color: #333; line-height: 1.5; background: #fff;">
+            <div style="text-align: center; border-bottom: 3px solid #111; padding-bottom: 10px; margin-bottom: 20px;">
+                <h1 style="font-size: 24px; font-weight: bold; margin: 0; letter-spacing: 1px; color: #1e3a8a;">HDH ATOLL SCHOOL</h1>
+                <h2 style="font-size: 14px; color: #555; text-transform: uppercase; margin: 5px 0 0 0;">KEY STAGE - ${record.Type || record.type} DETAILED REPORT</h2>
+                <p style="font-size: 10px; color: #999; margin: 2px 0 0 0;">Official Assessment System Document</p>
             </div>
             
-            <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse; font-size: 12px;">
+            <table style="width: 100%; margin-bottom: 30px; border-collapse: collapse; font-size: 12px;">
                 <tr>
-                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb; width: 25%;">
-                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Assessment Date:</strong><br/>
-                        <span style="font-weight: bold; color: #111827;">${record.Date || record.date || 'N/A'}</span>
+                    <td style="padding: 10px 15px; border: 1px solid #d1d5db; background: #f9fafb; width: 25%;">
+                        <strong style="font-size: 10px; color: #6b7280; display: block; margin-bottom: 2px;">ASSESSMENT DATE:</strong>
+                        <span style="font-size: 13px; font-weight: bold; color: #1f2937;">${record.Date || record.date || ''}</span>
                     </td>
-                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb; width: 25%;">
-                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Teacher:</strong><br/>
-                        <span style="font-weight: bold; color: #111827;">${record.Teacher || record.teacherName || 'N/A'}</span>
+                    <td style="padding: 10px 15px; border: 1px solid #d1d5db; background: #f9fafb; width: 25%;">
+                        <strong style="font-size: 10px; color: #6b7280; display: block; margin-bottom: 2px;">TEACHER:</strong>
+                        <span style="font-size: 13px; font-weight: bold; color: #1f2937;">${record.Teacher || record.teacherName || ''}</span>
                     </td>
-                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb; width: 25%;">
-                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Class & Subject:</strong><br/>
-                        <span style="font-weight: bold; color: #111827;">${record.Class || record.class || ''} - ${record.Subject || record.subject || ''}</span>
+                    <td style="padding: 10px 15px; border: 1px solid #d1d5db; background: #f9fafb; width: 25%;">
+                        <strong style="font-size: 10px; color: #6b7280; display: block; margin-bottom: 2px;">CLASS & SUBJECT:</strong>
+                        <span style="font-size: 13px; font-weight: bold; color: #1f2937;">${record.Class || record.class || ''} - ${record.Subject || record.subject || ''}</span>
                     </td>
-                    <td style="padding: 8px 10px; border: 1px solid #bfdbfe; background: #eff6ff; text-align: center; width: 25%;">
-                        <strong style="color: #1e40af; font-size: 10px; text-transform: uppercase;">Total Score:</strong><br/>
-                        <span style="font-size: 20px; font-weight: bold; color: #1d4ed8;">${record.Total_Percentage || record.percentage || record.percentageScore || 0}%</span>
+                    <td rowspan="2" style="padding: 10px 15px; border: 1px solid #bfdbfe; background: #eff6ff; text-align: center; width: 25%; vertical-align: middle;">
+                        <strong style="color: #1d4ed8; font-size: 11px; display: block; margin-bottom: 5px;">TOTAL SCORE:</strong>
+                        <span style="font-size: 26px; font-weight: bold; color: #2563eb;">${record.Total_Percentage || record.percentage || record.percentageScore || 0}%</span>
                     </td>
                 </tr>
-                ${isLesson ? `
                 <tr>
-                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb;" colspan="2">
-                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Topic:</strong><br/>
-                        <span style="font-weight: bold; color: #111827;">${record.Topic || 'N/A'}</span>
+                    <td colspan="2" style="padding: 10px 15px; border: 1px solid #d1d5db; background: #f9fafb;">
+                        <strong style="font-size: 10px; color: #6b7280; display: block; margin-bottom: 2px;">TOPIC:</strong>
+                        <span style="font-size: 13px; font-weight: bold; color: #1f2937;">${record.Topic || 'N/A'}</span>
                     </td>
-                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb;" colspan="2">
-                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Students / Observer:</strong><br/>
-                        <span style="font-weight: bold; color: #111827;">${record.Students || 'N/A'} Students | Observer: ${record.Observer || 'Admin'}</span>
+                    <td style="padding: 10px 15px; border: 1px solid #d1d5db; background: #f9fafb;">
+                        <strong style="font-size: 10px; color: #6b7280; display: block; margin-bottom: 2px;">STUDENTS / OBSERVER:</strong>
+                        <span style="font-size: 13px; font-weight: bold; color: #1f2937;">${record.Students || record.Students_Total || '-'} Students | Observer: <br/>${record.Observer || ''}</span>
                     </td>
                 </tr>
-                ` : `
-                <tr>
-                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb;" colspan="2">
-                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Books Completion:</strong><br/>
-                        <span style="font-weight: bold; color: #111827;">${record.Students_Completed || 0} / ${record.Students_Total || 1} Completed (${record.Students_Submitted || 0} Submitted)</span>
-                    </td>
-                    <td style="padding: 8px 10px; border: 1px solid #e5e7eb; background: #f9fafb;" colspan="2">
-                        <strong style="color: #6b7280; font-size: 10px; text-transform: uppercase;">Observer Email:</strong><br/>
-                        <span style="font-weight: bold; color: #111827;">${record.Observer || 'Admin'}</span>
-                    </td>
-                </tr>
-                `}
             </table>
 
-            ${contentHtml}
+            <div style="border-top: 2px solid #e5e7eb; margin: 30px 0;"></div>
 
-            <div style="margin-top: 20px; page-break-inside: avoid;">
-                <h3 style="font-size: 13px; font-weight: bold; border-bottom: 2px solid #3b82f6; padding-bottom: 4px; margin-bottom: 8px; color: #1d4ed8;">Observer Comments & Constructive Feedback</h3>
-                <div style="background: #f9fafb; border: 1px solid #e5e7eb; padding: 12px; border-radius: 6px; font-size: 11px; color: #374151; white-space: pre-wrap; min-height: 60px; line-height: 1.5;">
-                    ${record.Comments || record.generalComments || record.teacherFeedback || '<span style="color: #9ca3af; italic;">No additional comments recorded.</span>'}
+            ${isLesson ? `
+                <div>
+                    ${questionsHtml}
                 </div>
-            </div>
+            ` : `
+                <div style="page-break-inside: avoid; margin-bottom: 24px; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden;">
+                    <h3 style="background: #f3f4f6; padding: 10px 15px; margin: 0; font-weight: bold; font-size: 14px; border-bottom: 1px solid #d1d5db; color: #1f2937;">Grading Dimensions</h3>
+                    <table style="width: 100%; border-collapse: collapse; background: #ffffff; font-size: 12px;">
+                        <tr style="border-bottom: 1px solid #e5e7eb;">
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Regularity in marking:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim1_Regularity !== undefined ? record.Dim1_Regularity : 0} / 4</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #e5e7eb;">
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Accuracy comments given:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim2_Accuracy !== undefined ? record.Dim2_Accuracy : 0} / 4</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #e5e7eb;">
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Needs Improvement in marking:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim3_NeedsImp !== undefined ? record.Dim3_NeedsImp : 0} / 4</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #e5e7eb;">
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Adequate work given / Constructive:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim4_Adequate !== undefined ? record.Dim4_Adequate : 0} / 4</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #e5e7eb;">
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Neatness in marking:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim5_Neatness !== undefined ? record.Dim5_Neatness : 0} / 4</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #e5e7eb;">
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Date and signature given:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim6_DateSig !== undefined ? record.Dim6_DateSig : 0} / 4</td>
+                        </tr>
+                    </table>
+                </div>
+                <div style="page-break-inside: avoid; margin-bottom: 24px;">
+                    <h3 style="padding-bottom: 5px; font-size: 14px; margin-bottom: 10px; color: #1f2937;">Details of Student Work</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="background: #f9fafb; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px;"><strong style="color: #4b5563; display: block; margin-bottom: 4px;">Writing of date:</strong>${record.Work_Date_Comment || '-'}</div>
+                        <div style="background: #f9fafb; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px;"><strong style="color: #4b5563; display: block; margin-bottom: 4px;">Drawing of Margins:</strong>${record.Work_Margin_Comment || '-'}</div>
+                        <div style="background: #f9fafb; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px;"><strong style="color: #4b5563; display: block; margin-bottom: 4px;">Neatness of the work:</strong>${record.Work_Neatness_Comment || '-'}</div>
+                        <div style="background: #f9fafb; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px;"><strong style="color: #4b5563; display: block; margin-bottom: 4px;">Completion of the work:</strong>${record.Work_Completion_Comment || '-'}</div>
+                    </div>
+                </div>
+            `}
 
-            <div style="margin-top: 35px; padding-top: 15px; page-break-inside: avoid;">
-                <table style="width: 100%; text-align: center; font-size: 11px;">
+            <div style="page-break-inside: avoid; margin-top: 30px;">
+                <h3 style="padding-bottom: 5px; font-size: 14px; margin-bottom: 10px; color: #1f2937;">Observer Comments & Feedback</h3>
+                <div style="background: #f9fafb; padding: 15px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; margin-bottom: 40px; white-space: pre-wrap; min-height: 80px; color: #374151;">${record.Comments || record.generalComments || record.teacherFeedback || 'No written comments provided.'}</div>
+
+                <table style="width: 100%; margin-top: 40px; text-align: center; font-size: 12px;">
                     <tr>
-                        <td style="width: 33%;">
-                            <div style="border-bottom: 1px solid #9ca3af; width: 80%; margin: 0 auto 6px auto;"></div>
-                            <strong style="color: #374151;">Teacher Signature</strong><br/>
-                            <span style="color: #6b7280; font-size: 10px;">${record.Teacher || record.teacherName || ''}</span>
+                        <td style="width: 33%; padding: 0 10px;">
+                            <div style="border-top: 1px solid #9ca3af; padding-top: 8px; margin: 0 10px;">
+                                <strong style="color: #1f2937;">Teacher Signature</strong><br/><span style="color: #6b7280; font-size: 11px; display: block; margin-top: 4px;">${record.Teacher || record.teacherName || ''}</span>
+                            </div>
                         </td>
-                        <td style="width: 33%;">
-                            <div style="border-bottom: 1px solid #9ca3af; width: 80%; margin: 0 auto 6px auto;"></div>
-                            <strong style="color: #374151;">Observer Signature</strong><br/>
-                            <span style="color: #6b7280; font-size: 10px;">${record.Observer || ''}</span>
+                        <td style="width: 33%; padding: 0 10px;">
+                            <div style="border-top: 1px solid #9ca3af; padding-top: 8px; margin: 0 10px;">
+                                <strong style="color: #1f2937;">Observer Signature</strong><br/><span style="color: #6b7280; font-size: 11px; display: block; margin-top: 4px;">${record.Observer || ''}</span>
+                            </div>
                         </td>
-                        <td style="width: 33%;">
-                            <div style="border-bottom: 1px solid #9ca3af; width: 80%; margin: 0 auto 6px auto;"></div>
-                            <strong style="color: #374151;">Management Signature</strong><br/>
-                            <span style="color: #6b7280; font-size: 10px;">Leading Teacher / Principal</span>
+                        <td style="width: 33%; padding: 0 10px;">
+                            <div style="border-top: 1px solid #9ca3af; padding-top: 8px; margin: 0 10px;">
+                                <strong style="color: #1f2937;">Management Signature</strong><br/><span style="color: #6b7280; font-size: 11px; display: block; margin-top: 4px;">Leading Teacher / Principal</span>
+                            </div>
                         </td>
                     </tr>
                 </table>
@@ -442,34 +387,6 @@ const generateAndUploadPDF = async (recordData, appStorage) => {
     } catch (error) {
         console.error("PDF Generation/Upload Error:", error);
         return null;
-    }
-};
-
-const downloadPdfCopy = async (record, showNotification) => {
-    try {
-        if (showNotification) showNotification("Preparing high-quality PDF download...", "success");
-        const htmlContent = generateHTMLString(record);
-        const html2pdf = await getHtml2Pdf();
-        const element = document.createElement('div');
-        element.innerHTML = htmlContent;
-        
-        const typeName = (record.Type || record.type || 'Assessment').replace(/ /g, '_');
-        const teacherName = (record.Teacher || record.teacherName || 'Teacher').replace(/ /g, '_');
-        const dateStr = (record.Date || record.date || 'Record').replace(/[/\\?%*:|"<>]/g, '-');
-        
-        const opt = {
-            margin:       8,
-            filename:     `HDH_Atoll_School_${typeName}_${teacherName}_${dateStr}.pdf`,
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        await html2pdf().from(element).set(opt).save();
-        if (showNotification) showNotification("PDF report downloaded successfully!");
-    } catch (error) {
-        console.error("Direct PDF Download Error:", error);
-        if (showNotification) showNotification("Failed to generate PDF. Please try local print option.", "error");
     }
 };
 
@@ -770,7 +687,7 @@ export default function App() {
         if (!payload.TeacherEmail || offlineMode || !pdfUrl) return;
         
         try {
-            // Writes to the 'mail' collection (Firebase "Trigger Email" extension).
+            // This writes to the 'mail' collection, which works with the Firebase "Trigger Email" extension.
             await addDoc(collection(db, "mail"), {
                 to: [payload.TeacherEmail],
                 message: {
@@ -800,6 +717,29 @@ export default function App() {
             });
         } catch (error) {
             console.error("Error queuing email:", error);
+        }
+    };
+
+    const handleDownloadLocalPdf = async (record) => {
+        try {
+            showNotification("Generating PDF format, please wait...", "success");
+            const htmlContent = generateHTMLString(record);
+            const html2pdf = await getHtml2Pdf();
+            const element = document.createElement('div');
+            element.innerHTML = htmlContent;
+            
+            const opt = {
+                margin:       10,
+                filename:     `${record.Type.replace(/ /g, '_')}_${record.Teacher.replace(/ /g, '_')}_${Date.now()}.pdf`,
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2 },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            html2pdf().from(element).set(opt).save();
+        } catch (error) {
+            console.error("PDF Download Error:", error);
+            showNotification("Failed to download PDF.", "error");
         }
     };
 
@@ -841,6 +781,8 @@ export default function App() {
                     secMax += 5;
                     allQuestions.push({ q, val: numVal, section: section.title });
                     sheetsPayload[q] = numVal;
+                } else if (val === 'NN') {
+                    allQuestions.push({ q, val: 'NN', section: section.title });
                 }
             });
             const secPercent = secMax > 0 ? parseFloat(((secScore / secMax) * 100).toFixed(1)) : 0;
@@ -1038,9 +980,11 @@ export default function App() {
                 }
                 if (l.questionsData) {
                     l.questionsData.forEach(q => {
-                        if (!qStats[q.q]) qStats[q.q] = { total: 0, count: 0, section: q.section };
-                        qStats[q.q].total += (parseFloat(q.val) / 5) * 100;
-                        qStats[q.q].count += 1;
+                        if (q.val !== 'NN') {
+                            if (!qStats[q.q]) qStats[q.q] = { total: 0, count: 0, section: q.section };
+                            qStats[q.q].total += (parseFloat(q.val) / 5) * 100;
+                            qStats[q.q].count += 1;
+                        }
                     });
                 }
             });
@@ -1734,47 +1678,29 @@ export default function App() {
                             <h3 className="font-bold text-lg flex items-center gap-2">
                                 <FileText size={20} className="text-gray-300" /> Official Assessment Record
                             </h3>
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-3">
                                 <button 
-                                    onClick={() => downloadPdfCopy(selectedRecord, showNotification)} 
-                                    className="bg-green-600 hover:bg-green-500 text-white px-3.5 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
-                                    title="Download complete PDF document directly"
+                                    onClick={() => handleDownloadLocalPdf(selectedRecord)}
+                                    className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
                                 >
                                     <Download size={16} /> Download PDF
                                 </button>
-
-                                {selectedRecord.PDF_Report_URL && (
-                                    <a 
-                                        href={selectedRecord.PDF_Report_URL} 
-                                        target="_blank" 
-                                        rel="noreferrer"
-                                        className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
-                                    >
-                                        Cloud PDF
-                                    </a>
-                                )}
                                 {role === 'observer' && (
                                     <>
                                         <button 
                                             onClick={() => handleEdit(selectedRecord)}
-                                            className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
+                                            className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
                                         >
                                             <Edit size={16} /> Edit
                                         </button>
                                         <button 
                                             onClick={() => handleDeleteRecord(selectedRecord)} 
-                                            className="bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
+                                            className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm"
                                         >
                                             <Trash2 size={16} /> Delete
                                         </button>
                                     </>
                                 )}
-                                <button 
-                                    onClick={() => window.print()} 
-                                    className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center gap-1.5 transition shadow-sm"
-                                >
-                                    <Printer size={16} /> Print
-                                </button>
                                 <button onClick={() => setSelectedRecord(null)} className="p-1 hover:bg-white/20 rounded-lg transition"><X size={24} /></button>
                             </div>
                         </div>
@@ -1853,7 +1779,7 @@ export default function App() {
                                                             {selectedRecord.questionsData.map((q, idx) => (
                                                                 <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                                                                     <td className="p-2.5 text-gray-800">{q.q}</td>
-                                                                    <td className="p-2.5 text-center font-bold text-blue-700">{q.val} / 5</td>
+                                                                    <td className="p-2.5 text-center font-bold text-blue-700">{q.val === 'NN' ? 'NN' : q.val + ' / 5'}</td>
                                                                 </tr>
                                                             ))}
                                                         </tbody>
