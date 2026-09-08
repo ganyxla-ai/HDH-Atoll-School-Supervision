@@ -54,7 +54,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-const GOOGLE_SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzQ1V7NnL1iNf16J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29J0wX7mH29/exec";
+const GOOGLE_SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwoV2GcxKCG1wkhoT60u8GA_947NXpxB68TS_NjhmD3wCgMJdsrpWbalyF-UxN2qCfc8w/exec";
 
 const STAFF_LIST = [
     { name: 'Abdul Ganee Ali', email: 'abdulganee@hdhatollschool.edu.mv', designation: 'Principal' },
