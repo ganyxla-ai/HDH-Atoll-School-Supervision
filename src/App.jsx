@@ -101,6 +101,14 @@ const OBSERVER_EMAILS = [
     'shiuna@hdhatollschool.edu.mv'
 ];
 
+const ADMIN_EMAILS = [
+    'abdulganee@hdhatollschool.edu.mv',
+    'iashraf@hdhatollschool.edu.mv',
+    'nazim@hdhatollschool.edu.mv',
+    'shiuna@hdhatollschool.edu.mv',
+    'arusham@hdhatollschool.edu.mv'
+];
+
 let LOCAL_MEMORY_DB = {
     lesson_observations: [],
     book_checkings: []
@@ -295,13 +303,13 @@ const generateHTMLString = (record) => {
                             <td style="padding: 10px 15px; color: #374151;"><strong>Regularity in marking:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim1_Regularity !== undefined ? record.Dim1_Regularity : 0} / 4</td>
                         </tr>
                         <tr style="border-bottom: 1px solid #e5e7eb;">
-                            <td style="padding: 10px 15px; color: #374151;"><strong>Accuracy comments given:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim2_Accuracy !== undefined ? record.Dim2_Accuracy : 0} / 4</td>
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Accuracy in marking:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim2_Accuracy !== undefined ? record.Dim2_Accuracy : 0} / 4</td>
                         </tr>
                         <tr style="border-bottom: 1px solid #e5e7eb;">
-                            <td style="padding: 10px 15px; color: #374151;"><strong>Needs Improvement in marking:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim3_NeedsImp !== undefined ? record.Dim3_NeedsImp : 0} / 4</td>
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Adequate works given:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim3_NeedsImp !== undefined ? record.Dim3_NeedsImp : 0} / 4</td>
                         </tr>
                         <tr style="border-bottom: 1px solid #e5e7eb;">
-                            <td style="padding: 10px 15px; color: #374151;"><strong>Adequate work given / Constructive:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim4_Adequate !== undefined ? record.Dim4_Adequate : 0} / 4</td>
+                            <td style="padding: 10px 15px; color: #374151;"><strong>Constructive comments given:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim4_Adequate !== undefined ? record.Dim4_Adequate : 0} / 4</td>
                         </tr>
                         <tr style="border-bottom: 1px solid #e5e7eb;">
                             <td style="padding: 10px 15px; color: #374151;"><strong>Neatness in marking:</strong></td><td style="padding: 10px 15px; text-align: right; color: #1d4ed8; font-weight: bold;">${record.Dim5_Neatness !== undefined ? record.Dim5_Neatness : 0} / 4</td>
@@ -437,7 +445,7 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        if (currentView === 'settings' && user?.email === 'abdulganee@hdhatollschool.edu.mv') {
+        if (currentView === 'settings' && ADMIN_EMAILS.includes(user?.email)) {
             loadAdminRoles();
         }
     }, [currentView, user]);
@@ -451,14 +459,20 @@ export default function App() {
                 rolesMap[document.id] = document.data().role;
             });
             setAdminRolesMap(rolesMap);
-        } catch (e) { console.error("Error loading roles", e); }
+        } catch (e) {
+            if (e.code === 'permission-denied') {
+                console.warn("Permission denied for loading custom roles. Using defaults.");
+            } else {
+                console.error("Error loading roles:", e.message);
+            }
+        }
     };
 
     const assignRoles = async (emailToAssign) => {
         const lowerEmail = emailToAssign.toLowerCase();
         let userRole = OBSERVER_EMAILS.includes(lowerEmail) ? 'observer' : 'teacher';
         
-        if (lowerEmail === 'abdulganee@hdhatollschool.edu.mv') {
+        if (ADMIN_EMAILS.includes(lowerEmail)) {
             userRole = 'observer';
         } else if (!offlineMode) {
             try {
@@ -620,17 +634,23 @@ export default function App() {
                 lessons: fetchedLessons,
                 books: fetchedBooks
             });
+            if (offlineMode && forceFirebase) {
+                showNotification("Successfully connected to Firebase Database!", "success");
+            }
             setOfflineMode(false);
         } catch (error) {
-            console.error("Firebase fetch error:", error);
+            if (error.code === 'permission-denied') {
+                console.warn("Firebase permission denied. Falling back to local offline mode. Please ensure your Firestore Security Rules allow read/write access for authenticated users.");
+                if (!offlineMode) showNotification("Connected to Local Database (Firestore rules denied access).", "warning");
+            } else {
+                console.error("Firebase fetch error:", error.message);
+                if (!offlineMode) showNotification("Disconnected from server. Using local database.", "warning");
+            }
             setOfflineMode(true);
             setDashboardData({
                 lessons: [...LOCAL_MEMORY_DB.lesson_observations].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
                 books: [...LOCAL_MEMORY_DB.book_checkings].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
             });
-            if (error.code === 'permission-denied') {
-                showNotification("Database access denied. Check Firebase Security Rules.", "error");
-            }
         }
     };
 
@@ -1220,7 +1240,7 @@ export default function App() {
                 </form>
             </div>
 
-            {user?.email === 'abdulganee@hdhatollschool.edu.mv' && (
+            {ADMIN_EMAILS.includes(user?.email) && (
                 <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
                     <div className="bg-red-800 p-6 text-white flex items-center gap-3">
                         <Settings size={24} className="text-red-300" />
@@ -1236,7 +1256,7 @@ export default function App() {
                         <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
                             {STAFF_LIST.map((staff, idx) => {
                                 const currentRole = adminRolesMap[staff.email] || (OBSERVER_EMAILS.includes(staff.email) ? 'observer' : 'teacher');
-                                const isAdmin = staff.email === 'abdulganee@hdhatollschool.edu.mv';
+                                const isAdminTarget = ADMIN_EMAILS.includes(staff.email);
                                 
                                 return (
                                 <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
@@ -1252,9 +1272,9 @@ export default function App() {
                                     <div className="flex items-center gap-2">
                                         <button 
                                             onClick={() => handleRoleToggle(staff.email, currentRole)}
-                                            disabled={isAdmin}
-                                            title={isAdmin ? "Cannot change Principal role" : "Toggle Role"}
-                                            className={`text-xs border py-1.5 px-3 rounded shadow-sm transition flex items-center gap-2 ${isAdmin ? 'opacity-50 cursor-not-allowed bg-gray-100 border-gray-200 text-gray-400' : 'bg-white border-gray-300 text-gray-700 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200'}`}
+                                            disabled={isAdminTarget}
+                                            title={isAdminTarget ? "Cannot change Administrator role" : "Toggle Role"}
+                                            className={`text-xs border py-1.5 px-3 rounded shadow-sm transition flex items-center gap-2 ${isAdminTarget ? 'opacity-50 cursor-not-allowed bg-gray-100 border-gray-200 text-gray-400' : 'bg-white border-gray-300 text-gray-700 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200'}`}
                                         >
                                             <Shield size={14}/> {currentRole === 'observer' ? 'Make Teacher' : 'Make Observer'}
                                         </button>
@@ -1460,9 +1480,9 @@ export default function App() {
                             <tbody>
                                 {[
                                     { id: 'dim1', label: 'Regularity in marking', w: '35%', dbKey: 'Dim1_Regularity' },
-                                    { id: 'dim2', label: 'Accuracy comments given', w: '25%', dbKey: 'Dim2_Accuracy' },
-                                    { id: 'dim3', label: 'Needs Improvement in marking', w: '5%', dbKey: 'Dim3_NeedsImp' },
-                                    { id: 'dim4', label: 'Adequate work given / Constructive', w: '15%', dbKey: 'Dim4_Adequate' },
+                                    { id: 'dim2', label: 'Accuracy in marking', w: '25%', dbKey: 'Dim2_Accuracy' },
+                                    { id: 'dim3', label: 'Adequate works given', w: '5%', dbKey: 'Dim3_NeedsImp' },
+                                    { id: 'dim4', label: 'Constructive comments given', w: '15%', dbKey: 'Dim4_Adequate' },
                                     { id: 'dim5', label: 'Neatness in marking', w: '5%', dbKey: 'Dim5_Neatness' },
                                     { id: 'dim6', label: 'Date and signature given', w: '5%', dbKey: 'Dim6_DateSig' }
                                 ].map((dim, idx) => (
@@ -1624,6 +1644,12 @@ export default function App() {
                             <p className="font-semibold text-sm truncate">{teacherName}</p>
                         </div>
                     </div>
+                    {offlineMode && (
+                        <div className="mt-3 bg-yellow-500/20 border border-yellow-500/30 text-yellow-200 text-xs px-3 py-2 rounded-lg flex items-start gap-2">
+                            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                            <span>Local Mode Active. Update Firestore Rules to enable cloud sync.</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex-1 px-4 space-y-2 mt-2">
@@ -1656,7 +1682,11 @@ export default function App() {
             <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full max-h-screen">
                 <div className="max-w-6xl mx-auto relative pb-20">
                     {notification && (
-                        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl flex items-center gap-3 transform transition-all duration-300 ${notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
+                        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl flex items-center gap-3 transform transition-all duration-300 ${
+                            notification.type === 'success' ? 'bg-green-600 text-white' : 
+                            notification.type === 'warning' ? 'bg-yellow-500 text-white' :
+                            'bg-red-600 text-white'
+                        }`}>
                             {notification.type === 'success' ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
                             <p className="font-medium text-sm md:text-base">{notification.message}</p>
                         </div>
@@ -1797,9 +1827,9 @@ export default function App() {
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 {[
                                                     { label: 'Regularity in marking', val: selectedRecord.Dim1_Regularity },
-                                                    { label: 'Accuracy comments given', val: selectedRecord.Dim2_Accuracy },
-                                                    { label: 'Needs Improvement in marking', val: selectedRecord.Dim3_NeedsImp },
-                                                    { label: 'Adequate work given / Constructive', val: selectedRecord.Dim4_Adequate },
+                                                    { label: 'Accuracy in marking', val: selectedRecord.Dim2_Accuracy },
+                                                    { label: 'Adequate works given', val: selectedRecord.Dim3_NeedsImp },
+                                                    { label: 'Constructive comments given', val: selectedRecord.Dim4_Adequate },
                                                     { label: 'Neatness in marking', val: selectedRecord.Dim5_Neatness },
                                                     { label: 'Date and signature given', val: selectedRecord.Dim6_DateSig }
                                                 ].map((dim, idx) => (
